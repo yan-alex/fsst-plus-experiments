@@ -4,6 +4,10 @@
 using namespace duckdb;
 
 int main() {
+
+	// to install, run "git submodule update --init --recursive" to get the submodules
+	// then run "cd duckdb && make" to build duckdb
+
 	DuckDB db(nullptr);
 
 	Connection con(db);
@@ -46,12 +50,6 @@ int main() {
 		// get the next chunk, start loop again
 		next_chunk = result->Fetch();
 	}
-
-
-	// get the current path of duckdb
-	con.Query("INSTALL hostfs FROM community;")->Print();
-	con.Query("LOAD hostfs;")->Print();
-	con.Query("SELECT pwd()")->Print();
 
 	// example 2: read example/otp.csv, repleace the path with your own path
 	const auto csv_result = con.Query("SELECT * FROM read_csv_auto('/Users/paul/workspace/fsst-plus-experiments/example_data/otp.csv') LIMIT 10;");
