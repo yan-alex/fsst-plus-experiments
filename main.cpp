@@ -64,6 +64,9 @@ int main() {
 	// Allocate output buffer
 	unsigned char* output = static_cast<unsigned char*>(malloc(max_out_size));
 
+	/* =============================================
+	 * ================ COMPRESSION ================
+	 * ===========================================*/
 	// Perform compression
 	size_t num_compressed = fsst_compress(
 		encoder,				/* IN: encoder obtained from fsst_create(). */
@@ -87,7 +90,9 @@ int main() {
 		std::cout << "\n";
 	}
 
-
+	/* =============================================
+	 * =============== DECOMPRESSION ===============
+	 * ===========================================*/
 	// Get decoder for decompression
 	fsst_decoder_t decoder = fsst_decoder(encoder);
 
