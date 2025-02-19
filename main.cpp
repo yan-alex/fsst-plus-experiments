@@ -8,7 +8,7 @@ using namespace duckdb;
 fsst_encoder_t* create_encoder(const std::vector<size_t>& lenIn, std::vector<const unsigned char*>& strIn) {
 	const int zeroTerminated = 0; // DuckDB strings are not zero-terminated
 	fsst_encoder_t* encoder = fsst_create(
-		2000,        /* IN: number of strings in batch to sample from. */
+		lenIn.size(),        /* IN: number of strings in batch to sample from. */
 		lenIn.data(),        /* IN: byte-lengths of the inputs */
 		strIn.data(),        /* IN: string start pointers. */
 		zeroTerminated       /* IN: whether input strings are zero-terminated. If so, encoded strings are as well (i.e. symbol[0]=""). */
@@ -36,7 +36,7 @@ void extract_strings_from_result_chunk(const unique_ptr<DataChunk> &data_chunk, 
 	}
 }
 
-void print_compressed_strings(std::vector<size_t> lenIn, std::vector<const unsigned char *> strIn, std::vector<size_t> lenOut, std::vector<unsigned char *> strOut, size_t num_compressed) {
+void print_compressed_strings(std::vector<size_t>& lenIn, std::vector<const unsigned char *>& strIn, std::vector<size_t>& lenOut, std::vector<unsigned char *>& strOut, size_t num_compressed) {
 	// Print compressed strings
 	for (size_t i = 0; i < num_compressed; i++) {
 		std::cout << "Compressed string :" << strIn[i]
@@ -64,7 +64,7 @@ void print_compressed_strings(std::vector<size_t> lenIn, std::vector<const unsig
 
 }
 
-void verify_decompression_correctness(std::vector<std::string> original_strings, std::vector<size_t> lenIn, std::vector<size_t> lenOut, std::vector<unsigned char *> strOut, size_t num_compressed, fsst_decoder_t decoder) {
+void verify_decompression_correctness(std::vector<std::string>& original_strings, std::vector<size_t>& lenIn, std::vector<size_t>& lenOut, std::vector<unsigned char *>& strOut, size_t num_compressed, fsst_decoder_t& decoder) {
 	for (size_t i = 0; i < num_compressed; i++) {
 		// Allocate decompression buffer
 		auto* decompressed = static_cast<unsigned char*>(malloc(lenIn[i]));
@@ -88,7 +88,7 @@ void verify_decompression_correctness(std::vector<std::string> original_strings,
 
 }
 
-void print_decoder_symbol_table(fsst_decoder_t decoder) {
+void print_decoder_symbol_table(fsst_decoder_t &decoder) {
     std::cout << "\n==============================================\n";
     std::cout << "\tSTART FSST Decoder Symbol Table:\n";
 	std::cout << "==============================================\n";
@@ -151,6 +151,9 @@ int main() {
 		// Allocate output buffer
 		unsigned char* output = static_cast<unsigned char*>(malloc(max_out_size));
 
+
+		std::cout << "\n";
+
 		/* =============================================
 		 * ================ COMPRESSION ================
 		 * ===========================================*/
@@ -167,24 +170,26 @@ int main() {
 			strOut.data()/* OUT: output string start pointers. Will all point into [output,output+size). */
 		);
 
-		print_compressed_strings(lenIn, strIn, lenOut, strOut, num_compressed);
+		// print_compressed_strings(lenIn, strIn, lenOut, strOut, num_compressed);
+
+		fsst_decoder_t decoder = fsst_decoder(encoder);
+
+		// print_decoder_symbol_table(decoder);
 
 		/* =============================================
 		 * =============== DECOMPRESSION ===============
 		 * ===========================================*/
 
-		fsst_decoder_t decoder = fsst_decoder(encoder);
-
-		print_decoder_symbol_table(decoder);
 
 		verify_decompression_correctness(original_strings, lenIn, lenOut, strOut, num_compressed, decoder);
+		
 
 		//TODO: Save decoder symbol table somewhere together with compressed data?
 		
 
 		// // Cleanup
-		// std::cout << "Cleanup";
-		// fsst_destroy(encoder);
+		std::cout << "Cleanup";
+		fsst_destroy(encoder);
 
 		// get the next chunk, start loop again
 		next_chunk = result->Fetch();
