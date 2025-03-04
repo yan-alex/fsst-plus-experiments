@@ -9,7 +9,7 @@ link_directories(third_party/duckdb/build/release/src)
 include_directories(third_party/fsst)
 add_subdirectory(third_party/fsst)
 
-include_directories(cleaving)
+include_directories(src/cleaving)
 
 add_executable(main src/main.cpp)
 target_link_libraries(main duckdb fsst)

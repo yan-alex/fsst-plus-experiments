@@ -12,10 +12,24 @@ struct SimilarityChunk {
     size_t prefix_length;
 };
 
+void truncated_sort(
+    std::vector<size_t> &lenIn,
+    std::vector<const unsigned char *> &strIn,
+    size_t start_index);
+
 std::vector<SimilarityChunk> form_similarity_chunks(
     std::vector<size_t>& lenIn,
     std::vector<const unsigned char*>& strIn,
     size_t start_index);
+
+void cleave(std::vector<size_t> &lenIn,
+            std::vector<const unsigned char *> &strIn,
+            const std::vector<SimilarityChunk> &similarity_chunks,
+            std::vector<size_t> &prefixLenIn,
+            std::vector<const unsigned char*> &prefixStrIn,
+            std::vector<size_t> &suffixLenIn,
+            std::vector<const unsigned char*> &suffixStrIn
+);
 
 struct CleavedInputs {
     std::vector<size_t> prefixLenIn;

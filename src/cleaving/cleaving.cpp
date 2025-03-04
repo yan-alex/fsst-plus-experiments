@@ -6,6 +6,44 @@ namespace config {
     constexpr size_t max_prefix_size = 120; // how far into the string to scan for a prefix. (max prefix size)
 }
 
+// Sort all strings based on their starting characters truncated to the largest multiple of 8 bytes (up to config::max_prefix_size bytes)
+void truncated_sort(std::vector<size_t>& lenIn,  std::vector<const unsigned char*>& strIn, const size_t start_index) {
+    // std::cout << "Before sorting:\n";
+    // print_strings(lenIn, strIn);
+    const size_t n = std::min(lenIn.size()-1 - start_index, config::cleaving_run_n);
+
+    // Create index array
+    std::vector<size_t> indices(n);
+    for (size_t i = start_index; i < start_index+n; ++i) {
+        indices[i-start_index] = i;
+    }
+
+    // Sort indices based on truncated string comparison
+    std::sort(indices.begin(), indices.end(), [&](size_t i, size_t j) {
+        // Calculate truncated lengths as largest multiple of 8 <= min(config::max_prefix_size, original length)
+        size_t len_i = std::min(lenIn[i], config::max_prefix_size) & ~7;
+        size_t len_j = std::min(lenIn[j], config::max_prefix_size) & ~7;
+
+        // Compare truncated strings
+        int cmp = memcmp(strIn[i], strIn[j], std::min(len_i, len_j));
+        return cmp < 0 || (cmp == 0 && len_i < len_j);
+    });
+
+
+    // Reorder both vectors based on sorted indices
+    std::vector<size_t> tmp_len(lenIn);
+    std::vector<const unsigned char*> tmp_str(strIn);
+
+    for (size_t k = 0; k < n; ++k) {
+        lenIn[start_index + k] = tmp_len[indices[k]];
+        strIn[start_index + k] = tmp_str[indices[k]];
+    }
+
+
+    // std::cout << "\n\nAfter sorting:\n";
+    // print_strings(lenIn, strIn);
+}
+
 std::vector<SimilarityChunk> form_similarity_chunks(
     std::vector<size_t>& lenIn,
     std::vector<const unsigned char*>& strIn,
@@ -88,4 +126,28 @@ std::vector<SimilarityChunk> form_similarity_chunks(
     std::reverse(chunks.begin(), chunks.end());
 
     return chunks;
+}
+
+void cleave(std::vector<size_t> &lenIn,
+            std::vector<const unsigned char *> &strIn,
+            const std::vector<SimilarityChunk> &similarity_chunks,
+            std::vector<size_t> &prefixLenIn,
+            std::vector<const unsigned char*> &prefixStrIn,
+            std::vector<size_t> &suffixLenIn,
+            std::vector<const unsigned char*> &suffixStrIn
+) {
+    for (size_t i = 0; i < similarity_chunks.size(); i++) {
+        const SimilarityChunk& chunk = similarity_chunks[i];
+        size_t stop_index = i == similarity_chunks.size() - 1 ? lenIn.size() : similarity_chunks[i+1].start_index;
+
+        // Prefix
+        prefixLenIn.push_back(chunk.prefix_length);
+        prefixStrIn.push_back(strIn[chunk.start_index]);
+
+        for (size_t j = chunk.start_index; j < stop_index; j++) {
+            // Suffix
+            suffixLenIn.push_back(lenIn[j] - chunk.prefix_length);
+            suffixStrIn.push_back(strIn[j] + chunk.prefix_length);
+        }
+    }
 }
