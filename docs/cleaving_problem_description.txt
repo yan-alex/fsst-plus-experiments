@@ -1,0 +1,100 @@
+On a giving sorted list of strings, what are the optimal similarity chunks and 8-character-granularity prefix length within those chunks?
+The prefix length cannot be longer than 120 characters.
+
+----------------------------------
+    Example 1:
+    Strings:
+http://afisha.mail.ru/catalog/314/women.ru/ency=1&page3/?errovat-pinniki
+http://afisha.yandex.ru/index
+http://auto_repairs=0&price_ot=&price=18&lo=http%3A//mh6
+http://bdsmpeople.ru/real-estate/rent/search/room
+http://bdsmpeople.ru/v1496852954][to
+
+    SimilarityChunks:
+chunk.start_index:   0, len: 8
+chunk.start_index:   4, len: 16
+
+    Compression result (at the start, prefixes, then we have the suffixes, composed of prefix length (0 if no prefix) followed by prefix pointer):
+http://a
+http://bdsmpeopl
+
+8:0fisha.mail.ru/catalog/314/women.ru/ency=1&page3/?errovat-pinniki
+8:0fisha.yandex.ru/index
+8:0uto_repairs=0&price_ot=&price=18&lo=http%3A//mh6
+16:8e.ru/real-estate/rent/search/room
+16:8e.ru/v1496852954][to
+
+
+----------------------------------
+    Example 2:
+Strings:
+http://bonprix.ru/index.ru/cinema/art/0 986 424 233 сезон
+http://bonprix.ru/index.ru/cinema/art/A00387,3797); ru)&bL
+http://holodilnik.ru/russia/05jul2013&model=0
+http://tours/Ekategoriya%2F&sr=http://slovareniye
+https://produktor-sinij%2F%2Fwwww.bonprix&pvid=1
+https://produktor-sinij%2F%2Fwwww.bonprix&pvid=1
+https://produkty%2Fkategory_id=0&last_auto_id=&autodoc.ru/proskategory/sell/reside.travel.ru/recipe/viewtopic,375;sa=shop.ru/san
+https://produkty%2Fkategory_id=0&last_auto_id=&autodoc.ru/proskategory/sell/reside.travel.ru/recipe/viewtopic,375;sa=shop.ru/san
+https://produkty%2Fkategory_id=0&last_auto_id=46&model=67473.xhtml?1=1&cid=577&op_category_name
+https://produkty%2Fkategory_id=0&last_auto_id=46&model=67473.xhtml?1=1&cid=577&op_category_name
+
+    Here we have two choices, which both seem good at first. We could choose for option A:
+SimilarityChunks:
+chunk.start_index:   0, len: 32
+chunk.start_index:   2, len: 0
+chunk.start_index:   3, len: 0
+chunk.start_index:   4, len: 48
+chunk.start_index:   5, len:120
+chunk.start_index:   6, len:88
+
+    Compression result (at the start, prefixes, then we have the suffixes, composed of prefix length (0 if no prefix) followed by prefix pointer):
+
+http://bonprix.ru/index.ru/cinem
+https://produktor-sinij%2F%2Fwwww.bonprix&pvid=1
+https://produkty%2Fkategory_id=0&last_auto_id=&autodoc.ru/proskategory/sell/reside.travel.ru/recipe/viewtopic,375;sa=sho
+https://produkty%2Fkategory_id=0&last_auto_id=46&model=67473.xhtml?1=1&cid=577&op_catego
+
+32:0a/art/0 986 424 233 сезон
+32:0a/art/A00387,3797); ru)&bL
+0:http://holodilnik.ru/russia/05jul2013&model=0
+0:http://tours/Ekategoriya%2F&sr=http://slovareniye
+48:32
+48:32
+120:70p.ru/san
+120:70p.ru/san
+88:190ry_name
+88:190ry_name
+
+    Or we could alternatively choose for option B:
+SimilarityChunks:
+chunk.start_index:   0, len: 32
+chunk.start_index:   2, len: 0
+chunk.start_index:   3, len: 0
+chunk.start_index:   4, len: 48
+chunk.start_index:   5, len:40
+
+    Compression result (at the start, prefixes, then we have the suffixes, composed of prefix length (0 if no prefix) followed by prefix pointer):
+
+http://bonprix.ru/index.ru/cinem
+https://produktor-sinij%2F%2Fwwww.bonprix&pvid=1
+https://produkty%2Fkategory_id=0&last_au
+
+32:0a/art/0 986 424 233 сезон
+32:0a/art/A00387,3797); ru)&bL
+0:http://holodilnik.ru/russia/05jul2013&model=0
+0:http://tours/Ekategoriya%2F&sr=http://slovareniye
+48:32
+48:32
+40:70to_id=&autodoc.ru/proskategory/sell/reside.travel.ru/recipe/viewtopic,375;sa=shop.ru/san
+40:70to_id=&autodoc.ru/proskategory/sell/reside.travel.ru/recipe/viewtopic,375;sa=shop.ru/san
+40:70to_id=46&model=67473.xhtml?1=1&cid=577&op_category_name
+40:70to_id=46&model=67473.xhtml?1=1&cid=577&op_category_name
+
+
+---
+
+In this case, Option A is better, as the compression result is 523 long, compared to 606 for option B. But the algorithm
+shouldn't compress the text and count the length, as that takes too much time. It can however, use information it knows
+to predict the gain of a certain compression run. For instance, the prefix length followed by prefix pointer, in the real
+compressed form will use the datatypes uint8_t and uint16_t always. And if the length is 0,there will be no prefix pointer following it.

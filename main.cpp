@@ -4,9 +4,18 @@
 #include <iomanip>
 #include <ranges>
 #include "main.h"
+
+#include <sys/stat.h>
+
 #include "cmath"
 
 using namespace duckdb;
+
+namespace config {
+	constexpr size_t cleaving_run_n = 128; // number of elements per cleaving run
+	constexpr size_t max_prefix_size = 120; // how far into the string to scan for a prefix. (max prefix size)
+
+}
 
 fsst_encoder_t* create_encoder(const std::vector<size_t>& lenIn, std::vector<const unsigned char*>& strIn) {
 	const int zeroTerminated = 0; // DuckDB strings are not zero-terminated
@@ -115,7 +124,7 @@ void print_decoder_symbol_table(fsst_decoder_t& decoder) {
 
 }
 
-CompressionResult* compress(std::vector<size_t>& lenIn, std::vector<const unsigned char *>& strIn, bool isPrefix) {
+CompressionResult* compress(std::vector<size_t>& lenIn, std::vector<const unsigned char *>& strIn, bool isPrefix, std::vector<SimilarityChunk> similarity_chunks) {
 	// Create FSST encoder
 	fsst_encoder_t *encoder = create_encoder(lenIn, strIn);
 
@@ -145,47 +154,70 @@ CompressionResult* compress(std::vector<size_t>& lenIn, std::vector<const unsign
 
 	// print_compressed_strings(lenIn, strIn, lenOut, strOut, num_compressed);
 
-	fsst_decoder_t decoder = fsst_decoder(encoder);
-
+	// fsst_decoder_t decoder = fsst_decoder(encoder);
 	// print_decoder_symbol_table(decoder);
 
 	if (isPrefix) {
-		PrefixCompressionResult* result = new PrefixCompressionResult();
-		result->decoder = decoder;
+		auto* result = new PrefixCompressionResult();
+		result->encoded_prefixes = strOut;
+		result->encoder = encoder;
 		return result;
 	} else {
+		std::vector<SuffixData> data;
+		for (size_t i = 0; i < similarity_chunks.size(); i++) {
+			const SimilarityChunk& chunk = similarity_chunks[i];
+
+			size_t stop_index = i == similarity_chunks.size() - 1 ? lenIn.size() : similarity_chunks[i+1].start_index;
+
+			for (size_t j = chunk.start_index; j < stop_index; ++j) {
+				if (chunk.prefix_length == 0) {
+					data.push_back(SuffixData{static_cast<unsigned char>(0), strOut[j]});
+				} else {
+					//TODO: Is static_cast<unsigned char>(chunk.prefix_length) ok here? Can it overflow the char?
+					data.push_back(
+						SuffixDataWithPrefix{
+							static_cast<unsigned char>(chunk.prefix_length),
+							static_cast<unsigned short>(1),//TODO: 1 is a placeholder. Change to real jump-back offset
+							strOut[j]
+						}
+					);
+				}
+			}
+		}
 		auto* result = new SuffixCompressionResult();
-		result->decoder = decoder;
+		result->data = data;
+		result->encoder = encoder;
 		return result;
 	}
 }
+
 void print_strings(std::vector<size_t> &lenIn, std::vector<const unsigned char *> &strIn) {
 	// Print strings
 	for (size_t i = 0; i < lenIn.size(); ++i) {
-		std::cout<<"i " << i << ": ";
+		std::cout<<"i " << std::setw(3) << i << ": ";
 		for (size_t j = 0; j < lenIn[i]; ++j) {
 			std::cout << strIn[i][j];
 		}
 		std::cout << std::endl;
 	}
 }
-// Sort all strings based on their starting characters truncated to the largest multiple of 8 bytes (up to 120 bytes)
-void truncated_sort_next_128(std::vector<size_t>& lenIn,  std::vector<const unsigned char*>& strIn, const size_t start_index) {
+// Sort all strings based on their starting characters truncated to the largest multiple of 8 bytes (up to config::max_prefix_size bytes)
+void truncated_sort(std::vector<size_t>& lenIn,  std::vector<const unsigned char*>& strIn, const size_t start_index) {
 	// std::cout << "Before sorting:\n";
 	// print_strings(lenIn, strIn);
-	const size_t n = std::min(lenIn.size()-1 - start_index, static_cast<size_t>(128));
+	const size_t n = std::min(lenIn.size()-1 - start_index, config::cleaving_run_n);
 
 	// Create index array
 	std::vector<size_t> indices(n);
 	for (size_t i = start_index; i < start_index+n; ++i) {
-		indices[i] = i;
+		indices[i-start_index] = i;
 	}
 
 	// Sort indices based on truncated string comparison
 	std::sort(indices.begin(), indices.end(), [&](size_t i, size_t j) {
-		// Calculate truncated lengths as largest multiple of 8 <= min(120, original length)
-		size_t len_i = std::min(lenIn[i], static_cast<size_t>(120)) & ~7;
-		size_t len_j = std::min(lenIn[j], static_cast<size_t>(120)) & ~7;
+		// Calculate truncated lengths as largest multiple of 8 <= min(config::max_prefix_size, original length)
+		size_t len_i = std::min(lenIn[i], config::max_prefix_size) & ~7;
+		size_t len_j = std::min(lenIn[j], config::max_prefix_size) & ~7;
 
 		// Compare truncated strings
 		int cmp = memcmp(strIn[i], strIn[j], std::min(len_i, len_j));
@@ -197,17 +229,15 @@ void truncated_sort_next_128(std::vector<size_t>& lenIn,  std::vector<const unsi
 	std::vector<size_t> tmp_len(lenIn);
 	std::vector<const unsigned char*> tmp_str(strIn);
 
-	for (size_t k = 0; k < indices.size(); ++k) {
-		lenIn[k] = tmp_len[indices[k]];
-		strIn[k] = tmp_str[indices[k]];
+	for (size_t k = 0; k < n; ++k) {
+		lenIn[start_index + k] = tmp_len[indices[k]];
+		strIn[start_index + k] = tmp_str[indices[k]];
 	}
 
 
 	// std::cout << "\n\nAfter sorting:\n";
 	// print_strings(lenIn, strIn);
 }
-
-
 
 
 /*
@@ -231,78 +261,154 @@ size_t calc_match_len(std::vector<const unsigned char *> &strIn, std::vector<siz
 	return match_len;
 }
 
-std::vector<SimilarityChunk> form_similarity_chunks_for_next_128(std::vector<size_t>& lenIn, std::vector<const unsigned char*>& strIn, const size_t start_index) {
-	print_strings(lenIn, strIn);
+std::vector<SimilarityChunk> form_similarity_chunks(
+    std::vector<size_t>& lenIn,
+    std::vector<const unsigned char*>& strIn,
+    const size_t start_index)
+{
+    size_t N = std::min(lenIn.size() - start_index, config::cleaving_run_n);
 
-	const size_t n = std::min(lenIn.size()-1 - start_index, static_cast<size_t>(128));
+    if (N == 0) return {}; // No strings to process
 
-	std::vector<SimilarityChunk> similarity_chunks;
-	similarity_chunks.reserve(n);
+    std::vector<size_t> lcp(N - 1); // LCP between consecutive strings
+    std::vector<std::vector<size_t>> min_lcp(N, std::vector<size_t>(N));
 
-	// Find first non-empty string in batch
-    size_t first_non_empty = start_index;
-    while (first_non_empty < start_index+n && lenIn[first_non_empty] == 0) {
-        first_non_empty++;
+    // Precompute LCPs up to config::max_prefix_size characters
+    for (size_t i = 0; i < N - 1; ++i) {
+        size_t max_lcp = std::min({lenIn[start_index + i], lenIn[start_index + i + 1], config::max_prefix_size});
+        size_t l = 0;
+        const unsigned char* s1 = strIn[start_index + i];
+        const unsigned char* s2 = strIn[start_index + i + 1];
+        while (l < max_lcp && s1[l] == s2[l]) {
+            ++l;
+        }
+        lcp[i] = l;
     }
-    if (first_non_empty >= start_index+n) {
-        return similarity_chunks; // All strings are empty
+
+    // Precompute min_lcp[i][j]
+    for (size_t i = 0; i < N; ++i) {
+        min_lcp[i][i] = std::min(lenIn[start_index + i], config::max_prefix_size);
+        for (size_t j = i + 1; j < N; ++j) {
+            min_lcp[i][j] = std::min(min_lcp[i][j - 1], lcp[j - 1]);
+        }
     }
 
+    // Precompute prefix sums of string lengths (cumulatively adding the lenght of each element)
+    std::vector<size_t> length_prefix_sum(N + 1, 0);
+    for (size_t i = 0; i < N; ++i) {
+        length_prefix_sum[i + 1] = length_prefix_sum[i] + lenIn[start_index + i];
+    }
 
-	SimilarityChunk similarity_chunk;
-	// Start new similarity chunk.
-	similarity_chunk.start_index =first_non_empty;
-	similarity_chunk.prefix_length = calc_match_len(strIn, lenIn, first_non_empty+1);
+    const size_t INF = std::numeric_limits<size_t>::max();
+    std::vector<size_t> dp(N + 1, INF);
+    std::vector<size_t> prev(N + 1, 0);
+    std::vector<size_t> p_for_i(N + 1, 0);
 
-	for (size_t i = first_non_empty+1; i <= start_index+n; i++) {
-		size_t coverage = (1 + i - similarity_chunk.start_index);
+    dp[0] = 0;
 
-		const size_t gain = coverage * similarity_chunk.prefix_length;
-		const size_t match_len = calc_match_len(strIn, lenIn, i); // compares i to i-1
-		const size_t potential_gain = coverage * match_len;
+    // Dynamic programming to find the optimal partitioning
+    for (size_t i = 1; i <= N; ++i) {
+        for (size_t j = 0; j < i; ++j) {
+            size_t min_common_prefix = min_lcp[j][i - 1]; // can be max 128 a.k.a. config::max_prefix_size
+            for (size_t p = 0; p <= min_common_prefix; p += 8) {
 
-		// bool different_match_len = match_len != similarity_chunk.prefix_length;
+                size_t n = i - j;
+                size_t per_string_overhead = 1 + (p > 0 ? 2 : 0);// 1 because u will always exist, 2 for pointer
+                size_t overhead = n * per_string_overhead;
+                size_t sum_len = length_prefix_sum[i] - length_prefix_sum[j];
+                size_t total_cost = dp[j] + overhead + sum_len - (n - 1) * p;  // (n - 1) * p is the compression gain. n are strings in current range, p is the common prefix length in this range
 
+                if (total_cost < dp[i]) {
+                    dp[i] = total_cost;
+                    prev[i] = j;
+                    p_for_i[i] = p;
+                }
+            }
+        }
+    }
 
+    // Reconstruct the chunks and their prefix lengths
+    std::vector<SimilarityChunk> chunks;
+    size_t idx = N;
+    while (idx > 0) {
+        size_t start_idx = prev[idx];
+        size_t prefix_length = p_for_i[idx];
+        SimilarityChunk chunk;
+        chunk.start_index = start_index + start_idx;
+        chunk.prefix_length = prefix_length;
+        chunks.push_back(chunk);
+        idx = start_idx;
+    }
+    // The chunks are reversed, so we need to reverse them back
+    std::reverse(chunks.begin(), chunks.end());
 
-		if (potential_gain < gain || match_len == 0) { // match_len changed and not first iteration, or its last iteration
-			similarity_chunks.push_back(similarity_chunk); // makes a copy!
+    return chunks;
+}
 
-			similarity_chunk.start_index = i;
-
-			if (i == start_index+n) { // LAST STRING
-				// Start new similarity chunk.
-				similarity_chunk.prefix_length = 0;
-				similarity_chunks.push_back(similarity_chunk); // makes a copy!
-				continue;
-			}
-
-			// Start new similarity chunk.
-			similarity_chunk.prefix_length = calc_match_len(strIn, lenIn, i+1);
-		}
-
-
-	}
-
-	// Print similarity chunks
+void cleave(std::vector<size_t> &lenIn,
+            std::vector<const unsigned char *> &strIn,
+            const std::vector<SimilarityChunk> &similarity_chunks,
+            std::vector<size_t> &prefixLenIn,
+			std::vector<const unsigned char*> &prefixStrIn,
+			std::vector<size_t> &suffixLenIn,
+			std::vector<const unsigned char*> &suffixStrIn
+) {
 	for (size_t i = 0; i < similarity_chunks.size(); i++) {
-		SimilarityChunk& chunk = similarity_chunks[i];
-		std::cout << "chunk.start_index: " <<  std::setw(3) << chunk.start_index <<
-			// ", prefix_length: " << std::setw(3) << chunk.prefix_length <<
-			", prefix: ";
-		std::cout.write(reinterpret_cast<const char*>(strIn[chunk.start_index]), chunk.prefix_length);
-		std::cout << std::endl;
+		const SimilarityChunk& chunk = similarity_chunks[i];
+		size_t stop_index = i == similarity_chunks.size() - 1 ? lenIn.size() : similarity_chunks[i+1].start_index;
+
+		// Prefix
+		prefixLenIn.push_back(chunk.prefix_length);
+		prefixStrIn.push_back(strIn[chunk.start_index]);
+
+		for (size_t j = chunk.start_index; j < stop_index; j++) {
+			// Suffix
+			suffixLenIn.push_back(lenIn[j] - chunk.prefix_length);
+			suffixStrIn.push_back(strIn[j] + chunk.prefix_length);
+		}
 	}
+}
+
+size_t calc_compressed_prefix_size(const PrefixCompressionResult* prefix_sompression_result) {
+	size_t result = 0;
+	size_t size = prefix_sompression_result->encoded_prefixes.size();
+	unsigned char * first_pointer = prefix_sompression_result->encoded_prefixes[0];
+	unsigned char * last_pointer = prefix_sompression_result->encoded_prefixes[size - 1];
+	result += last_pointer - first_pointer;
+
+    // Correctly calculate decoder size by serialization
+    unsigned char buffer[FSST_MAXHEADER];
+    size_t serialized_size = fsst_export(prefix_sompression_result->encoder, buffer);
+    result += serialized_size;
+	
+	return result;
+}
+size_t calc_compressed_suffix_size(const SuffixCompressionResult* suffix_compression_result) {
+	size_t result = 0;
+	size_t size = suffix_compression_result->data.size();
+	for (size_t i = 0; i < size; i++) {
+		SuffixData data = suffix_compression_result->data[i];
+		if (data.prefix_length != 0 ){
+			// data = static_cast<SuffixDataWithPrefix>(data);
+			// TODO: Add size to result correctly? how?
+
+		}
+	};
 
 
-	return similarity_chunks;
+    // Correctly calculate decoder size by serialization
+    unsigned char buffer[FSST_MAXHEADER];
+    size_t serialized_size = fsst_export(suffix_compression_result->encoder, buffer);
+    result += serialized_size;
+
+	return result;
 }
 
 int main() {
 	DuckDB db(nullptr);
 	Connection con(db);
 
-	const auto result = con.Query("SELECT Url FROM read_parquet('/Users/yanlannaalexandre/_DA_REPOS/fsst-plus-experiments/example_data/clickbenchurl.parquet') LIMIT 60;");
+	const auto result = con.Query("SELECT Url FROM read_parquet('/Users/yanlannaalexandre/_DA_REPOS/fsst-plus-experiments/example_data/clickbenchurl.parquet') LIMIT 2000;");
 	auto data_chunk = result->Fetch();
 
 	while (data_chunk) {
@@ -322,23 +428,58 @@ int main() {
 		extract_strings_from_data_chunk(data_chunk, original_strings, lenIn, strIn);
 		// print_strings(lenIn, strIn);
 
-		// const int iter = ceil(n / 128.0);
+
+		// Cleaving results will be stored here
+		std::vector<size_t> prefixLenIn;
+		prefixLenIn.reserve(n);
+		std::vector<const unsigned char*> prefixStrIn;
+		prefixStrIn.reserve(n);
+		std::vector<size_t> suffixLenIn;
+		suffixLenIn.reserve(n);
+		std::vector<const unsigned char*> suffixStrIn;
+		suffixStrIn.reserve(n);
+
+		std::vector<SimilarityChunk> similarity_chunks;
+		similarity_chunks.reserve(n);
 
 		// Cleaving runs
-		for (size_t i = 0; i < n; i+=128) {
-			std::cout << "Current Cleaving Run coverage: " << i <<":"<< i+127 << std::endl;
+		for (size_t i = 0; i < n; i+=config::cleaving_run_n) {
+			std::cout << "Current Cleaving Run coverage: " << i <<":"<< i+config::cleaving_run_n-1 << std::endl;
 
-			truncated_sort_next_128(lenIn, strIn, i);
+			truncated_sort(lenIn, strIn, i);
 
-			std::vector<SimilarityChunk> similarity_chunks = form_similarity_chunks_for_next_128(lenIn, strIn, i);
-
-			const size_t len = lenIn[i];
-
+			// print_strings(lenIn, strIn);
+			const std::vector<SimilarityChunk> cleaving_run_similarity_chunks = form_similarity_chunks(lenIn, strIn, i);
+			similarity_chunks.insert(similarity_chunks.end(),
+									cleaving_run_similarity_chunks.begin(),
+									cleaving_run_similarity_chunks.end());
+			
 		}
+		cleave(lenIn, strIn, similarity_chunks, prefixLenIn, prefixStrIn, suffixLenIn, suffixStrIn);
 
-        PrefixCompressionResult* prefixCompressionResult = static_cast<PrefixCompressionResult*>(compress(lenIn, strIn, true));
 
-        SuffixCompressionResult* suffixCompressionResult = static_cast<SuffixCompressionResult*>(compress(lenIn, strIn, false));
+        PrefixCompressionResult* prefixCompressionResult = static_cast<PrefixCompressionResult*>(compress(prefixLenIn, prefixStrIn, true, similarity_chunks));
+
+        SuffixCompressionResult* suffixCompressionResult = static_cast<SuffixCompressionResult*>(compress(suffixLenIn, suffixStrIn, false, similarity_chunks));
+
+		// size_t compressed_prefix_size = calc_compressed_prefix_size(prefixCompressionResult);
+		// size_t compressed_suffix_size = sizeof(*suffixCompressionResult);
+		// size_t total_compressed = compressed_prefix_size + compressed_suffix_size;
+		//
+		// size_t total_original = {0};
+		// for (size_t i = 0; i < lenIn.size(); i++) {
+		// 	total_original += lenIn[i];
+		// }
+		//
+		// std::cout << "✅ ✅ ✅ Compressed " << lenIn.size() << " strings ✅ ✅ ✅\n";
+		// std::cout << "Original   size: " << total_original << " bytes\n";
+		// std::cout << "Compressed size: " << total_compressed << " bytes\n";
+		// std::cout << "Compression ratio: " << total_original/static_cast<double>(total_compressed) << "\n\n";
+
+		// Must be deallocated!
+		delete prefixCompressionResult;
+		delete suffixCompressionResult;
+
 
 		// // // Cleanup
 		// std::cout << "Cleanup";
@@ -347,4 +488,5 @@ int main() {
 		// get the next chunk, start loop again
 		data_chunk = result->Fetch();
 	}
+	return 0;
 }

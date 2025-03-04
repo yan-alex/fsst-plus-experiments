@@ -36,11 +36,12 @@ void extract_strings_from_result_chunk(const unique_ptr<DataChunk> &data_chunk, 
 	}
 }
 
+
 void print_compressed_strings(std::vector<size_t>& lenIn, std::vector<const unsigned char *>& strIn, std::vector<size_t>& lenOut, std::vector<unsigned char *>& strOut, size_t num_compressed) {
 	// Print compressed strings
 	for (size_t i = 0; i < num_compressed; i++) {
-		std::cout << "Compressed string :" << strIn[i]
-				<< " to ";
+		std::cout << strIn[i]
+				<< " was compressed to ";
 		for (size_t j = 0; j < lenOut[i]; j++) {
 			std::cout << static_cast<int>(strOut[i][j]) << " "; // Print each byte as an integer
 		}
@@ -54,15 +55,13 @@ void print_compressed_strings(std::vector<size_t>& lenIn, std::vector<const unsi
 	}
 
 
-	// Print compression stats
-	std::cout << "\nCompressed " << num_compressed << " strings\n";
-	std::cout << "Original size: " << total_original << " bytes\n";
-	std::cout << "Compressed size: " << total_compressed << " bytes\n";
-	std::cout << "Compression ratio: "
-			  << (double)total_compressed/total_original * 100
-			  << "%\n";
 
+	std::cout << "✅ ✅ ✅ Compressed " << lenIn.size() << " strings ✅ ✅ ✅\n";
+	std::cout << "Original   size: " << total_original << " bytes\n";
+	std::cout << "Compressed size: " << total_compressed << " bytes\n";
+	std::cout << "Compression ratio: " << total_original/static_cast<double>(total_compressed) << "\n\n";
 }
+
 
 void verify_decompression_correctness(std::vector<std::string>& original_strings, std::vector<size_t>& lenIn, std::vector<size_t>& lenOut, std::vector<unsigned char *>& strOut, size_t num_compressed, fsst_decoder_t& decoder) {
 	for (size_t i = 0; i < num_compressed; i++) {
@@ -121,7 +120,7 @@ int main() {
 	DuckDB db(nullptr);
 	Connection con(db);
 
-	const auto result = con.Query("SELECT \"Case Number\" FROM read_csv('/Users/yanlannaalexandre/_DA_REPOS/fsst-plus-experiments/example_data/Chicago Crimes 2012-2017.csv', strict_mode=False) LIMIT 10000;");
+	const auto result = con.Query("SELECT Url FROM read_parquet('/Users/yanlannaalexandre/_DA_REPOS/fsst-plus-experiments/example_data/clickbenchurl.parquet') LIMIT 255;");
 	auto next_chunk = result->Fetch();
 
 	while (next_chunk) {
@@ -170,7 +169,7 @@ int main() {
 			strOut.data()/* OUT: output string start pointers. Will all point into [output,output+size). */
 		);
 
-		// print_compressed_strings(lenIn, strIn, lenOut, strOut, num_compressed);
+		print_compressed_strings(lenIn, strIn, lenOut, strOut, num_compressed);
 
 		fsst_decoder_t decoder = fsst_decoder(encoder);
 
