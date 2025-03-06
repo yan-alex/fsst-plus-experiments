@@ -2,7 +2,8 @@
 #include <ranges>
 
 namespace config {
-    constexpr size_t cleaving_run_n = 128; // number of elements per cleaving run
+    // TODO: Should be determined dynamically based on the string size. If the string is >32kb it can dreadfully compress to 64kb so we can't do jumpback. In that case cleaving_run_n = 1
+    constexpr size_t cleaving_run_n = 128; // number of elements per cleaving run.
     constexpr size_t max_prefix_size = 120; // how far into the string to scan for a prefix. (max prefix size)
 }
 
@@ -76,7 +77,7 @@ std::vector<SimilarityChunk> form_similarity_chunks(
         }
     }
 
-    // Precompute prefix sums of string lengths (cumulatively adding the lenght of each element)
+    // Precompute prefix sums of string lengths (cumulatively adding the length of each element)
     std::vector<size_t> length_prefix_sum(N + 1, 0);
     for (size_t i = 0; i < N; ++i) {
         length_prefix_sum[i + 1] = length_prefix_sum[i] + lenIn[start_index + i];

@@ -1,38 +1,3 @@
-FSST+
-Thesis Proposal
-Yan Lanna Alexandre
-February 25, 2025
-1 Introduction
-Recent research in cloud analytics and benchmarking [3, 4] has shown that a significant portion (around
-50%) of the data in modern analytical systems is composed of strings.
-In light of these findings, there is a clear need for advanced string compression techniques that not
-only achieve high compression ratios but also support fast random access—allowing individual strings
-to be decompressed directly without processing entire blocks. This thesis proposes the development
-of FSST+, an enhanced compression system that extends the FSST algorithm by targeting longer
-repeated prefixes and local redundancies in string data.
-2 Background
-2.1 String Compression Schemes: Dictionary Encoding and FSST
-Dictionary Encoding is a common technique that maps each unique string to a small integer. In
-contrast, FSST (Fast Static Symbol Table) [2] is a random access compression algorithm that replaces
-frequently occurring short substrings (up to 8 bytes) with 1-byte codes. In this context, random
-access means that individual elements within the compressed data can be retrieved directly without
-decompressing the entire block—a critical property for applications requiring quick and selective data
-retrieval. Despite its good compression ratio, FSST currently does not fully leverage longer repeated
-prefixes or local redundancies that are commonplace in real-world datasets such as URLs, log entries,
-or product names.
-2.2 DuckDB
-DuckDB is a lightweight, embedded analytical relational database management system designed for
-high performance in analytical queries. It processes data in columnar format, which is particularly
-advantageous for applying advanced compression techniques. Due to its simplicity, ease of integration,
-and efficiency, DuckDB serves as an ideal testbed for experimental compression methods like FSST+.
-2.3 Limitations of FSST and Motivation for FSST+
-While FSST compresses frequent short substrings (up to 8 bytes) effectively, empirical evidence from
-datasets—such as the URL column in ClickBench [1]—suggests that many string columns exhibit longer
-repeated prefixes. These patterns create opportunities for enhanced compression through mechanisms
-that capture: (1) longer shared prefixes across groups of strings, and (2) local redundancies within
-adjacent strings. FSST+ addresses these opportunities by introducing batched processing of strings,
-shared prefix detection, and a novel jumpback mechanism to reduce pointer overhead.
-1
 3 FSST+ Design and Methodology
 3.1 Methodology Overview
 The development of FSST+ will proceed in clearly defined phases—starting with a standalone proto-
@@ -41,7 +6,7 @@ methodology are as follows.
 • Batching and Truncation:
 – Divide target columns into runs of 128 strings.
 – Truncate each string to 120 bytes, ensuring that even if escape sequences double the size (up
-to 240 bytes), the length information remains storable in a single uint8. In the worst-case
+to 240 bytes), the length information remains storable in a single uint8 . In the worst-case
 scenario (128 strings each truncated to 120 bytes), the total size is approximately 15.4 KB,
 which fits within typical L1 cache limits (16–128 KB per core).
 • Sorting and Grouping:
@@ -60,85 +25,38 @@ two-byte, pointer referencing its prefix, thereby reducing pointer overhead.
 – Assess whether capturing redundancy not only at the start of strings, but also at the end
 of strings (by processing their reversed versions and using an is reversed flag) further
 improves compression.
-– Benchmark an alternative deign, where the prefix length is stored at the beginning of the
+– Benchmark an alternative design, where the prefix length is stored at the beginning of the
 prefix data area instead of at the start of each suffix. In this case a zero jumpback offset
 would indicate the absence of a prefix.
 3.2 Data Structure Design
 The efficiency of random access and pointer overhead minimization will be ensured by the following
 data layout:
 • Block Header and Run Offsets: Data is segmented into blocks subdivided into runs (each
-containing 128 strings). An array (e.g., run start offsets[]) records the starting offset for
+containing 128 strings). An array (e.g., run start offsets[] ) records the starting offset for
 each run.
-• Run Header: Each run includes a header with a base offset for suffix data and an array (e.g.,
-string offsets[]) that maps each string in the run to its compressed location.
-• Prefix Data Area: A contiguous region stores all compressed prefixes.
-• Suffix Data Area: For each string, the suffix area stores metadata (such as the prefix length or
-jumpback pointer) along with the compressed suffix, thereby permitting variable-length prefixes
-while maintaining efficient decompression.
+• Run Header: Within each run, we have a Run Header. This is because we need to know the
+delimiters of each compressed string within the run.
+Therefore, Run Header starts with base offset which points to the start of the compressed
+strings, followed by num strings indicating how many compressed string elements there are,
+and an array (e.g., string offsets[] ) that maps each string in the run to its compressed
+location.
 2
 Figure 1: Data Structure Overview
+• Prefix Data Area: Contains encoded prefixes[] , a contiguous region storing all compressed
+prefixes.
+• Compressed Strings: Each string starts starts with 8 bytes prefix length . In the case
+prefix length is not zero, it will be followed by 16 bytes jumpback offset , along with
+3
+encoded suffix . When prefix length is zero, it’s directly followed by encoded suffix
+with no jumpback offset in between. That saves precious compression space.
+A uint16 jumpback offset allows us to save values from 0 to 65,536. What this means is the
+maximum range we can jump back is 65,536 bytes to find our prefix, so the number bytes stored
+from the Prefix Data Area onwards, up to the last jump-back offset shouldn’t exceed 65,536.
 3.3 Evaluation
 The standalone prototype will be evaluated using the following metrics:
 • Compression Ratio: FSST+ will be compared to FSST, LZ4, zstd, and dictionary encod-
 ing on large datasets with string data. These include NextiaJD; RealNest; Redset; Public BI
-3
 Benchmark; and ClickBench.
 • Compression/Decompression Speed: The evaluation will ensure that the improved com-
 pression does not compromise the system’s fast, random-access capabilities, and mantains an
 acceptable compression / decompression speed.
-3.4 Analysis of Trade-offs
-After evaluation, trade-offs will be analyzed based on:
-• Scenarios in which FSST+ outperforms conventional compression schemes.
-• The impact of varying levels of local redundancy on pointer overhead and overall compression
-efficiency.
-• Comparative analyses of design alternatives (e.g. jumpback mechanisms versus separate pre-
-fix/suffix pointers) and the effectiveness of proposed heuristics/cost models for determining sim-
-ilarity chunks and split points.
-3.5 DuckDB Integration (Stretch Goal)
-As a final extension, FSST+ will be incorporated into DuckDB’s compression and storage API by
-adapting the FSST-vector implementation and related structures. This integration will ensure compat-
-ibility with existing query operators and allow measurement of the effect on overall query performance.
-4 Research Questions
-RQ1: How does FSST+ compare with FSST, LZ4, zstd, and dictionary encoding in terms of com-
-pression ratio on string collumns of the following datasets ClickBench; NextiaJD; RealNest;
-RedSet; and Public BI Benchmark?
-RQ2: Which patterns can be found in the string columns of these datasets? How can they be exploited
-for compression?
-RQ3: How can similarity chunks and optimal split points be determined reliably?
-RQ3.1: Which heuristic or cost model (potentially leveraging metadata captured during sort-
-ing) best identifies similarity chunks and optimal split boundaries?
-RQ3.2: How do these grouping and splitting strategies affect the compression ratio and speed
-of the system?
-RQ4: (Stretch Goal) How does integration of FSST+ into DuckDB affect query performance and
-system compatibility?
-RQ5: (Stretch Goal) How can the integration of zstd and FSST+ compression techniques in DuckDB
-optimize both compression ratios and query performance while maintaining the ability for com-
-pressed data to flow into operators?
-5 Time Plan
-The following table summarizes the planned timeline and key milestones for the project:
-4
-Month Activities
-February Learn C++; initiate prototype development; finalize thesis pro-
-posal.
-March Conduct literature study; Collect relevant datasets, select and ex-
-tract pertinent string columns, and implement automated testing
-framework.
-April Complete the standalone FSST+ prototype; analyze trade-offs;
-run preliminary experiments; finalize literature review.
-May Refine the prototype towards the full FSST+ design; work on the
-final report;
-June Begin (and, if possible, complete) DuckDB integration; evaluate
-query performance; prepare presentation.
-Table 1: Project Timeline and Key Milestones
-References
-[1] ClickHouse/ClickBench, Feb. 2025. original-date: 2022-07-11T20:36:51Z.
-[2] Boncz, P., Neumann, T., and Leis, V. FSST: fast random access string compression. Proceed-
-ings of the VLDB Endowment 13, 12 (Aug. 2020), 2649–2661.
-[3] van Renen, A., Horn, D., Pfeil, P., Vaidya, K., Dong, W., Narayanaswamy, M., Liu,
-Z., Saxena, G., Kipf, A., and Kraska, T. Why TPC is Not Enough: An Analysis of the
-Amazon Redshift Fleet. Proc. VLDB Endow. 17, 11 (July 2024), 3694–3706.
-[4] Vogelsgesang, A., Haubenschild, M., Finis, J., Kemper, A., Leis, V., Muehlbauer, T.,
-Neumann, T., and Then, M. Get Real: How Benchmarks Fail to Represent the Real World.
-In Proceedings of the Workshop on Testing Database Systems (New York, NY, USA, June 2018),
-DBTest ’18, Association for Computing Machinery, pp. 1–6.
-5

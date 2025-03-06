@@ -120,7 +120,7 @@ void print_decoder_symbol_table(fsst_decoder_t& decoder) {
 
 }
 
-CompressionResult* compress(std::vector<size_t>& lenIn, std::vector<const unsigned char *>& strIn, bool isPrefix, std::vector<SimilarityChunk> similarity_chunks) {
+FSSTCompressionResult fsst_compress(const std::vector<size_t>& lenIn, std::vector<const unsigned char *>& strIn) {
 	// Create FSST encoder
 	fsst_encoder_t *encoder = create_encoder(lenIn, strIn);
 
@@ -137,7 +137,7 @@ CompressionResult* compress(std::vector<size_t>& lenIn, std::vector<const unsign
 	unsigned char *output = static_cast<unsigned char *>(malloc(max_out_size));
 
 	//////////////// COMPRESSION ////////////////
-	size_t iter = fsst_compress(
+	fsst_compress(
 		encoder,       /* IN: encoder obtained from fsst_create(). */
 		lenIn.size(),  /* IN: number of strings in batch to compress. */
 		lenIn.data(),  /* IN: byte-lengths of the inputs */
@@ -153,38 +153,89 @@ CompressionResult* compress(std::vector<size_t>& lenIn, std::vector<const unsign
 	// fsst_decoder_t decoder = fsst_decoder(encoder);
 	// print_decoder_symbol_table(decoder);
 
-	if (isPrefix) {
-		auto* result = new PrefixCompressionResult();
-		result->encoded_prefixes = strOut;
-		result->encoder = encoder;
-		return result;
-	} else {
-		std::vector<SuffixData> data;
-		for (size_t i = 0; i < similarity_chunks.size(); i++) {
-			const SimilarityChunk& chunk = similarity_chunks[i];
+	return FSSTCompressionResult{encoder, lenOut, strOut};
+}
+size_t calc_encoded_strings_size(const FSSTCompressionResult& prefix_sompression_result) {
+	size_t result = 0;
+	size_t size = prefix_sompression_result.encoded_strings_length.size();
+	for (size_t i = 0; i < size; ++i) {
+		result += prefix_sompression_result.encoded_strings_length[i];
+	}
 
-			size_t stop_index = i == similarity_chunks.size() - 1 ? lenIn.size() : similarity_chunks[i+1].start_index;
+	// TODO: Should encoder be added?
+	// // Correctly calculate decoder size by serialization
+	// unsigned char buffer[FSST_MAXHEADER];
+	// size_t serialized_size = fsst_export(prefix_sompression_result.encoder, buffer);
+	// result += serialized_size;
 
-			for (size_t j = chunk.start_index; j < stop_index; ++j) {
-				if (chunk.prefix_length == 0) {
-					data.push_back(SuffixData{static_cast<unsigned char>(0), strOut[j]});
-				} else {
-					//TODO: Is static_cast<unsigned char>(chunk.prefix_length) ok here? Can it overflow the char?
-					data.push_back(
-						SuffixDataWithPrefix{
-							static_cast<unsigned char>(chunk.prefix_length),
-							static_cast<unsigned short>(1),//TODO: 1 is a placeholder. Change to real jump-back offset
-							strOut[j]
-						}
-					);
+	return result;
+}
+
+// Currently assumes each CompressedBlock has its own symbol table
+// returns total_compressed_size
+size_t compress(std::vector<size_t>& prefixLenIn, std::vector<const unsigned char *>& prefixStrIn,std::vector<size_t>& suffixLenIn, std::vector<const unsigned char *>& suffixStrIn, const std::vector<SimilarityChunk>& similarity_chunks, FSSTPlusCompressionResult& fsst_plus_compression_result) {
+	const size_t BLOCK_DATA_CAPACITY = UINT16_MAX; // ~64KB capacity
+
+	FSSTCompressionResult prefix_result = fsst_compress(prefixLenIn, prefixStrIn);
+	size_t encoded_prefixes_size = calc_encoded_strings_size(prefix_result);
+
+	FSSTCompressionResult suffix_result = fsst_compress(suffixLenIn, suffixStrIn);
+	size_t encoded_suffixes_size = calc_encoded_strings_size(suffix_result);
+
+	if (encoded_prefixes_size + encoded_suffixes_size > BLOCK_DATA_CAPACITY) {
+		std::cerr << "Block Data Capacity Exceeded\n"; //TODO: Throws an error for now, should handle it gracefully in the future
+		throw std::logic_error("Block Data Capacity Exceeded");
+	}
+	// Gradually fill compressed block up to 64kb from prefix data area, and create a new compressed block when it's full.
+	CompressedBlock current_block;
+	size_t current_block_size = 0;
+
+	current_block.prefix_data_area = new uint8_t[BLOCK_DATA_CAPACITY]; // TODO: Is this a C-style array? Is there a better way to do this?
+	current_block.suffix_data_area = current_block.prefix_data_area + encoded_prefixes_size;
+
+	// This is where we will write to
+	uint8_t* prefix_writer = current_block.prefix_data_area;
+	uint8_t* suffix_writer = current_block.suffix_data_area;
+
+
+	for (size_t i = 0; i < similarity_chunks.size(); i++) {
+		const SimilarityChunk& chunk = similarity_chunks[i];
+		const size_t stop_index = i == similarity_chunks.size() - 1 ? suffix_result.encoded_strings_length.size() : similarity_chunks[i+1].start_index;
+		if (chunk.prefix_length == 0) {
+
+			//Write suffix
+			*suffix_writer++ = 0; // prefix_length = 0
+			for (size_t j = chunk.start_index; j < stop_index; j++) {
+				for (size_t k = 0; k < suffix_result.encoded_strings_length[j]; k++) {
+					*suffix_writer++ = suffix_result.encoded_strings[j][k];
+				}
+			}
+		} else {
+			//Write prefix
+			if (prefix_writer + chunk.prefix_length < current_block.suffix_data_area) { // If fits
+				for (size_t k = 0; k < prefix_result.encoded_strings_length[i]; k++) {
+					*prefix_writer++ = prefix_result.encoded_strings[i][k];
+				}
+			}
+
+			//Write suffix
+			*suffix_writer++ = chunk.prefix_length; // prefix_length = 0
+
+			uint16_t jumpback_offset = suffix_writer - (prefix_writer - 1); // jumpback offset. minus one because prefix_writer incremented after the write
+			memcpy(suffix_writer, &jumpback_offset, sizeof(jumpback_offset));
+			suffix_writer += sizeof(jumpback_offset);
+
+			for (size_t j = chunk.start_index; j < stop_index; j++) {
+				for (size_t k = 0; k < suffixLenIn[j]; k++) {
+					*suffix_writer++ = suffixStrIn[j][k];
 				}
 			}
 		}
-		auto* result = new SuffixCompressionResult();
-		result->data = data;
-		result->encoder = encoder;
-		return result;
 	}
+
+	size_t total_compressed_size = (prefix_writer - current_block.prefix_data_area) + (suffix_writer - current_block.suffix_data_area); //TODO: include symbol table?
+	return total_compressed_size;
+
 }
 
 void print_strings(std::vector<size_t> &lenIn, std::vector<const unsigned char *> &strIn) {
@@ -198,46 +249,34 @@ void print_strings(std::vector<size_t> &lenIn, std::vector<const unsigned char *
 	}
 }
 
-size_t calc_compressed_prefix_size(const PrefixCompressionResult* prefix_sompression_result) {
-	size_t result = 0;
-	size_t size = prefix_sompression_result->encoded_prefixes.size();
-	unsigned char * first_pointer = prefix_sompression_result->encoded_prefixes[0];
-	unsigned char * last_pointer = prefix_sompression_result->encoded_prefixes[size - 1];
-	result += last_pointer - first_pointer;
-
-    // Correctly calculate decoder size by serialization
-    unsigned char buffer[FSST_MAXHEADER];
-    size_t serialized_size = fsst_export(prefix_sompression_result->encoder, buffer);
-    result += serialized_size;
-	
-	return result;
-}
-size_t calc_compressed_suffix_size(const SuffixCompressionResult* suffix_compression_result) {
-	size_t result = 0;
-	size_t size = suffix_compression_result->data.size();
-	for (size_t i = 0; i < size; i++) {
-		SuffixData data = suffix_compression_result->data[i];
-		if (data.prefix_length != 0 ){
-			// data = static_cast<SuffixDataWithPrefix>(data);
-			// TODO: Add size to result correctly? how?
-
-		}
-	};
-
-
-    // Correctly calculate decoder size by serialization
-    unsigned char buffer[FSST_MAXHEADER];
-    size_t serialized_size = fsst_export(suffix_compression_result->encoder, buffer);
-    result += serialized_size;
-
-	return result;
-}
+// size_t calc_compressed_suffix_size(const SuffixCompressionResult* suffix_compression_result) {
+// 	size_t result = 0;
+// 	size_t size = suffix_compression_result->data.size();
+// 	for (size_t i = 0; i < size; i++) {
+// 		SuffixData data = suffix_compression_result->data[i];
+// 		if (data.prefix_length != 0 ){
+// 			// data = static_cast<SuffixDataWithPrefix>(data);
+// 			// TODO: Add size to result correctly? how?
+//
+// 		}
+// 	};
+//
+//
+//     // Correctly calculate decoder size by serialization
+//     unsigned char buffer[FSST_MAXHEADER];
+//     size_t serialized_size = fsst_export(suffix_compression_result->encoder, buffer);
+//     result += serialized_size;
+//
+// 	return result;
+// }
 
 int main() {
 	DuckDB db(nullptr);
 	Connection con(db);
-
-	const auto result = con.Query("SELECT Url FROM read_parquet('/Users/yanlannaalexandre/_DA_REPOS/fsst-plus-experiments/example_data/clickbenchurl.parquet') LIMIT 2000;");
+	// constexpr size_t total_strings = 128;
+	// constexpr size_t total_strings = 256;
+	constexpr size_t total_strings = 2048;
+	const auto result = con.Query("SELECT Url FROM read_parquet('/Users/yanlannaalexandre/_DA_REPOS/fsst-plus-experiments/example_data/clickbenchurl.parquet') LIMIT " + std::to_string(total_strings) + ";");
 	auto data_chunk = result->Fetch();
 
 	while (data_chunk) {
@@ -282,14 +321,30 @@ int main() {
 			similarity_chunks.insert(similarity_chunks.end(),
 									cleaving_run_similarity_chunks.begin(),
 									cleaving_run_similarity_chunks.end());
-			
 		}
 		cleave(lenIn, strIn, similarity_chunks, prefixLenIn, prefixStrIn, suffixLenIn, suffixStrIn);
 
+		FSSTPlusCompressionResult compression_result;
+		compression_result.run_start_offsets = {nullptr}; // Placeholder
+		size_t total_compressed_size = {0};
 
-        PrefixCompressionResult* prefixCompressionResult = static_cast<PrefixCompressionResult*>(compress(prefixLenIn, prefixStrIn, true, similarity_chunks));
+		// for (size_t i = 0; i < std::ceil(static_cast<double>(n)/config::cleaving_run_n); i++) {
+		total_compressed_size += compress(prefixLenIn, prefixStrIn, suffixLenIn, suffixStrIn, similarity_chunks, compression_result);
+		// }
 
-        SuffixCompressionResult* suffixCompressionResult = static_cast<SuffixCompressionResult*>(compress(suffixLenIn, suffixStrIn, false, similarity_chunks));
+
+		// Print compression stats
+		std::cout << "✅ ✅ ✅ Compressed " << prefixLenIn.size() + suffixLenIn.size() << " strings ✅ ✅ ✅\n";
+		size_t total_original = {0};
+		for (size_t i = 0; i < lenIn.size(); i++) {
+			total_original += lenIn[i];
+		}
+		std::cout << "Original   size: " << total_original << " bytes\n";
+		std::cout << "Compressed size: " << total_compressed_size << " bytes\n";
+		std::cout << "Compression ratio: " << total_original / (double)total_compressed_size << "\n\n";
+
+
+
 
 		// size_t compressed_prefix_size = calc_compressed_prefix_size(prefixCompressionResult);
 		// size_t compressed_suffix_size = sizeof(*suffixCompressionResult);
@@ -305,9 +360,7 @@ int main() {
 		// std::cout << "Compressed size: " << total_compressed << " bytes\n";
 		// std::cout << "Compression ratio: " << total_original/static_cast<double>(total_compressed) << "\n\n";
 
-		// Must be deallocated!
-		delete prefixCompressionResult;
-		delete suffixCompressionResult;
+
 
 
 		// // // Cleanup

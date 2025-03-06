@@ -120,7 +120,7 @@ int main() {
 	DuckDB db(nullptr);
 	Connection con(db);
 
-	const auto result = con.Query("SELECT Url FROM read_parquet('/Users/yanlannaalexandre/_DA_REPOS/fsst-plus-experiments/example_data/clickbenchurl.parquet') LIMIT 255;");
+	const auto result = con.Query("SELECT Url FROM read_parquet('/Users/yanlannaalexandre/_DA_REPOS/fsst-plus-experiments/example_data/clickbenchurl.parquet') LIMIT 2048;");
 	auto next_chunk = result->Fetch();
 
 	while (next_chunk) {
