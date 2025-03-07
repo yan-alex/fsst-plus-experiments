@@ -1,12 +1,3 @@
-#include <fsst.h>
-#include <ranges>
-
-struct FSSTCompressionResult {
-    fsst_encoder_t* encoder;
-    std::vector<size_t> encoded_strings_length;
-    std::vector<unsigned char *> encoded_strings;
-};
-
 
 struct SuffixData {
     uint8_t prefix_length; // uint8_t = unsigned char = 8 bits
