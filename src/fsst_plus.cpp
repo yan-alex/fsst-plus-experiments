@@ -11,6 +11,7 @@
 namespace config {
 	constexpr size_t cleaving_run_n = 128; // number of elements per cleaving run. 	// TODO: Should be determined dynamically based on the string size. If the string is >32kb it can dreadfully compress to 64kb so we can't do jumpback. In that case cleaving_run_n = 1
 	constexpr size_t max_prefix_size = 120; // how far into the string to scan for a prefix. (max prefix size)
+	constexpr size_t total_strings = 2048; // how far into the string to scan for a prefix. (max prefix size)
 	constexpr bool print_sorted_corpus = false;
 	constexpr bool print_split_points = false; // prints compressed corpus displaying split points
 }
@@ -97,9 +98,8 @@ size_t compress(std::vector<size_t>& prefixLenIn, std::vector<const unsigned cha
 int main() {
 	DuckDB db(nullptr);
 	Connection con(db);
-	constexpr size_t total_strings = 2048;
 
-	const string query = "SELECT Url FROM read_parquet('/Users/yanlannaalexandre/_DA_REPOS/fsst-plus-experiments/example_data/clickbenchurl.parquet') LIMIT " + std::to_string(total_strings) + ";";
+	const string query = "SELECT Url FROM read_parquet('/Users/yanlannaalexandre/_DA_REPOS/fsst-plus-experiments/example_data/clickbenchurl.parquet') LIMIT " + std::to_string(config::total_strings) + ";";
 	// ======= RUN BASIC FSST TO COMPARE =======
 	run_basic_fsst(con, query);
 
@@ -161,6 +161,7 @@ int main() {
 		compression_result.run_start_offsets = {nullptr}; // Placeholder
 
 		total_compressed_string_size += compress(prefixLenIn, prefixStrIn, suffixLenIn, suffixStrIn, similarity_chunks, compression_result);
+
 		total_strings_amount += lenIn.size();
 		for (size_t string_length : lenIn) {
 			total_string_size += string_length;

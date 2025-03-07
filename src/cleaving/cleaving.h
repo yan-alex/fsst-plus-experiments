@@ -6,7 +6,7 @@
 
 #include <ranges>
 #include "print_utils.h"
-
+#include "../config.h" // Not needed but prevents ClionIDE from complaining
 
 // Sort all strings based on their starting characters truncated to the largest multiple of 8 bytes (up to config::max_prefix_size bytes)
 inline void truncated_sort(std::vector<size_t>& lenIn,  std::vector<const unsigned char*>& strIn, const size_t start_index) {
