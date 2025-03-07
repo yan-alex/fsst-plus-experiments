@@ -2,6 +2,7 @@
 #include "fsst.h"
 #include <iostream>
 #include <iomanip>
+#include "main.h"
 
 using namespace duckdb;
 
@@ -17,7 +18,7 @@ fsst_encoder_t* create_encoder(const std::vector<size_t>& lenIn, std::vector<con
 }
 
 void extract_strings_from_result_chunk(const unique_ptr<DataChunk> &data_chunk, std::vector<std::string> &original_strings, std::vector<size_t> &lenIn, std::vector<const unsigned char *> &strIn) {
-	std::cout << data_chunk->size() << " strings will be used this run.\n";
+	std::cout <<" Compression run coverage: 0:" << data_chunk->size();
 	
 	auto &vector = data_chunk->data[0];
 	auto vector_data = FlatVector::GetData<string_t>(vector);
@@ -36,31 +37,16 @@ void extract_strings_from_result_chunk(const unique_ptr<DataChunk> &data_chunk, 
 	}
 }
 
+size_t calc_symbol_table_size(fsst_encoder_t* encoder) {
+	size_t result = 0;
+	// Correctly calculate decoder size by serialization
+	unsigned char buffer[FSST_MAXHEADER];
+	size_t serialized_size = fsst_export(encoder, buffer);
+	result += serialized_size;
 
-void print_compressed_strings(std::vector<size_t>& lenIn, std::vector<const unsigned char *>& strIn, std::vector<size_t>& lenOut, std::vector<unsigned char *>& strOut, size_t num_compressed) {
-	// Print compressed strings
-	for (size_t i = 0; i < num_compressed; i++) {
-		std::cout << strIn[i]
-				<< " was compressed to ";
-		for (size_t j = 0; j < lenOut[i]; j++) {
-			std::cout << static_cast<int>(strOut[i][j]) << " "; // Print each byte as an integer
-		}
-		std::cout << "\n";
-	}
-	size_t total_original = {0};
-	size_t total_compressed = {0};
-	for (size_t i = 0; i < num_compressed; i++) {
-		total_original += lenIn[i];
-		total_compressed += lenOut[i];
-	}
-
-
-
-	std::cout << "✅ ✅ ✅ Compressed " << lenIn.size() << " strings ✅ ✅ ✅\n";
-	std::cout << "Original   size: " << total_original << " bytes\n";
-	std::cout << "Compressed size: " << total_compressed << " bytes\n";
-	std::cout << "Compression ratio: " << total_original/static_cast<double>(total_compressed) << "\n\n";
+	return result;
 }
+
 
 
 void verify_decompression_correctness(std::vector<std::string>& original_strings, std::vector<size_t>& lenIn, std::vector<size_t>& lenOut, std::vector<unsigned char *>& strOut, size_t num_compressed, fsst_decoder_t& decoder) {
@@ -116,25 +102,32 @@ void print_decoder_symbol_table(fsst_decoder_t &decoder) {
 
 }
 
-int main() {
-	DuckDB db(nullptr);
-	Connection con(db);
+void run_basic_fsst(duckdb::Connection &con, const std::string &parquetPath, size_t limit) {
+	const auto query = std::string("SELECT Url FROM read_parquet('") + parquetPath + "') LIMIT " + std::to_string(limit) + ";";
+	const auto result = con.Query(query);
+	auto data_chunk = result->Fetch();
 
-	const auto result = con.Query("SELECT Url FROM read_parquet('/Users/yanlannaalexandre/_DA_REPOS/fsst-plus-experiments/example_data/clickbenchurl.parquet') LIMIT 2048;");
-	auto next_chunk = result->Fetch();
+	size_t total_strings_amount = {0};
+	size_t total_string_size = {0};
+	size_t total_compressed_string_size = {0};
+	std::cout <<
+		"===============================================\n"<<
+		"==========START BASIC FSST COMPRESSION=========\n"<<
+		"===============================================\n";
+	while (data_chunk) {
+		const size_t n = data_chunk->size();
+		std::cout << "🔷 " << n << " strings in DataChunk 🔷\n";
 
-	while (next_chunk) {
 		std::vector<std::string> original_strings;
-		original_strings.reserve(10000);
+		original_strings.reserve(n);
 
 		std::vector<size_t> lenIn;
-		lenIn.reserve(10000);
+		lenIn.reserve(n);
 
 		std::vector<const unsigned char*> strIn;
-		strIn.reserve(10000);
-		
+		strIn.reserve(n);
 		// Populate lenIn and strIn
-		extract_strings_from_result_chunk(next_chunk, original_strings, lenIn, strIn);
+		extract_strings_from_result_chunk(data_chunk, original_strings, lenIn, strIn);
 
 		// Create FSST encoder
 		fsst_encoder_t* encoder = create_encoder(lenIn, strIn);
@@ -150,7 +143,6 @@ int main() {
 		// Allocate output buffer
 		unsigned char* output = static_cast<unsigned char*>(malloc(max_out_size));
 
-
 		std::cout << "\n";
 
 		/* =============================================
@@ -159,38 +151,41 @@ int main() {
 
 		// Perform compression
 		size_t num_compressed = fsst_compress(
-			encoder,				/* IN: encoder obtained from fsst_create(). */
-		lenIn.size(),/* IN: number of strings in batch to compress. */
-			lenIn.data(),/* IN: byte-lengths of the inputs */
-			strIn.data(), /* IN: input string start pointers. */
-			max_out_size,/* IN: byte-length of output buffer. */
-			output,/* OUT: memory buffer to put the compressed strings in (one after the other). */
-			lenOut.data(),/* OUT: byte-lengths of the compressed strings. */
-			strOut.data()/* OUT: output string start pointers. Will all point into [output,output+size). */
+			encoder,                    /* IN: encoder obtained from fsst_create(). */
+			lenIn.size(),               /* IN: number of strings in batch to compress. */
+			lenIn.data(),               /* IN: byte-lengths of the inputs */
+			strIn.data(),               /* IN: input string start pointers. */
+			max_out_size,               /* IN: byte-length of output buffer. */
+			output,                     /* OUT: memory buffer to put the compressed strings in (one after the other). */
+			lenOut.data(),              /* OUT: byte-lengths of the compressed strings. */
+			strOut.data()               /* OUT: output string start pointers. */
 		);
-
-		print_compressed_strings(lenIn, strIn, lenOut, strOut, num_compressed);
-
-		fsst_decoder_t decoder = fsst_decoder(encoder);
-
-		// print_decoder_symbol_table(decoder);
 
 		/* =============================================
 		 * =============== DECOMPRESSION ===============
 		 * ===========================================*/
 
+		// fsst_decoder_t decoder = fsst_decoder(encoder);
+		// verify_decompression_correctness(original_strings, lenIn, lenOut, strOut, num_compressed, decoder);
 
-		verify_decompression_correctness(original_strings, lenIn, lenOut, strOut, num_compressed, decoder);
-		
+		for (size_t compressed_string_length: lenOut) {
+			total_compressed_string_size += compressed_string_length;
+		}
+		total_compressed_string_size += calc_symbol_table_size(encoder);
+		total_strings_amount += lenIn.size();
+		for (size_t string_length : lenIn) {
+			total_string_size += string_length;
+		}
 
-		//TODO: Save decoder symbol table somewhere together with compressed data?
-		
 
-		// // Cleanup
-		std::cout << "Cleanup";
-		fsst_destroy(encoder);
 
-		// get the next chunk, start loop again
-		next_chunk = result->Fetch();
+		// Get the next chunk, continue loop
+		data_chunk = result->Fetch();
 	}
+
+	print_compression_stats(total_strings_amount, total_string_size, total_compressed_string_size);
+
+	// // Cleanup
+	// std::cout << "Cleanup\n";
+	// fsst_destroy(encoder);
 }

@@ -49,3 +49,4 @@ struct FSSTPlusCompressionResult {
     std::vector<CompressedBlock> compressed_blocks;
 };
 
+void print_compression_stats(size_t total_strings_amount, size_t total_string_size, size_t total_compressed_string_size);

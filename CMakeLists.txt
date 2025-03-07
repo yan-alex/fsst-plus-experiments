@@ -12,9 +12,9 @@ add_subdirectory(third_party/fsst)
 include_directories(src/cleaving)
 
 add_executable(main src/main.cpp)
-target_link_libraries(main duckdb fsst)
+target_link_libraries(main basic_fsst duckdb fsst)
 
-add_executable(basic_fsst src/basic_fsst.cpp)
+add_library(basic_fsst STATIC src/basic_fsst.cpp)
 target_link_libraries(basic_fsst duckdb fsst)
 
 add_executable(cleaving_test test/cleaving_test.cpp)
