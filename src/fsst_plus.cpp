@@ -1,3 +1,4 @@
+#include "config.h"
 #include "duckdb.hpp"
 #include <iostream>
 #include <ranges>
@@ -5,10 +6,14 @@
 #include "cleaving.h"
 #include "basic_fsst.h"
 
-#include <sys/stat.h>
 #include "duckdb_utils.h"
 
-
+namespace config {
+	constexpr size_t cleaving_run_n = 128; // number of elements per cleaving run. 	// TODO: Should be determined dynamically based on the string size. If the string is >32kb it can dreadfully compress to 64kb so we can't do jumpback. In that case cleaving_run_n = 1
+	constexpr size_t max_prefix_size = 120; // how far into the string to scan for a prefix. (max prefix size)
+	constexpr bool print_sorted_corpus = false;
+	constexpr bool print_split_points = false; // prints compressed corpus displaying split points
+}
 
 size_t calc_encoded_strings_size(const FSSTCompressionResult& prefix_sompression_result) {
 	size_t result = 0;
@@ -18,7 +23,6 @@ size_t calc_encoded_strings_size(const FSSTCompressionResult& prefix_sompression
 	}
 	return result;
 }
-
 
 // Currently assumes each CompressedBlock has its own symbol table
 // returns total_compressed_size

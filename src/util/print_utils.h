@@ -2,7 +2,6 @@
 // Created by Yan Lanna Alexandre on 07/03/2025.
 //
 #include <fsst.h>
-
 #include "cleaving_types.h"
 #include <iomanip>
 #include <iostream>
@@ -22,7 +21,7 @@ inline void print_strings(const std::vector<size_t> &lenIn, std::vector<const un
     }
 };
 
-inline void print_split_points(std::vector<const unsigned char *> &strIn,
+inline void print_string_with_split_points(std::vector<const unsigned char *> &strIn,
                                std::vector<size_t> &suffixLenIn,
                                std::vector<const unsigned char *> &suffixStrIn,
                                const SimilarityChunk &chunk,

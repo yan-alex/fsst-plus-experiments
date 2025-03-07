@@ -1,20 +1,12 @@
 //
 // Created by Yan Lanna Alexandre on 04/03/2025.
 //
-#include <ranges>
-#include "print_utils.h"
-#include "cleaving_types.h"
-
 #ifndef CLEAVING_H
 #define CLEAVING_H
 
-namespace config {
-    // TODO: Should be determined dynamically based on the string size. If the string is >32kb it can dreadfully compress to 64kb so we can't do jumpback. In that case cleaving_run_n = 1
-    constexpr size_t cleaving_run_n = 128; // number of elements per cleaving run.
-    constexpr size_t max_prefix_size = 120; // how far into the string to scan for a prefix. (max prefix size)
-    constexpr bool print_sorted_corpus = false;
-    constexpr bool print_split_points = false; // prints compressed corpus displaying split points
-}
+#include <ranges>
+#include "print_utils.h"
+
 
 // Sort all strings based on their starting characters truncated to the largest multiple of 8 bytes (up to config::max_prefix_size bytes)
 inline void truncated_sort(std::vector<size_t>& lenIn,  std::vector<const unsigned char*>& strIn, const size_t start_index) {
@@ -160,7 +152,7 @@ inline void cleave(std::vector<size_t> &lenIn,
             suffixLenIn.push_back(lenIn[j] - chunk.prefix_length);
             suffixStrIn.push_back(strIn[j] + chunk.prefix_length);
             if (config::print_split_points) {
-                print_split_points(strIn, suffixLenIn, suffixStrIn, chunk, j);
+                print_string_with_split_points(strIn, suffixLenIn, suffixStrIn, chunk, j);
             }
         }
     }

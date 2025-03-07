@@ -6,4 +6,4 @@ struct SimilarityChunk {
     size_t prefix_length;
 };
 
-#endif // CLEAVING_TYPES_H 
+#endif // CLEAVING_TYPES_H
