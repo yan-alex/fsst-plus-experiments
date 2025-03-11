@@ -56,7 +56,7 @@ inline void verify_decompression_correctness(std::vector<std::string>& original_
 }
 
 inline void extract_strings_from_result_chunk(const duckdb::unique_ptr<duckdb::DataChunk> &data_chunk, std::vector<std::string> &original_strings, std::vector<size_t> &lenIn, std::vector<const unsigned char *> &strIn) {
-	std::cout <<" Compression run coverage: 0:" << data_chunk->size();
+	std::cout <<" Compression run coverage: 0:" << data_chunk->size()-1;
 
 	auto &vector = data_chunk->data[0];
 	auto vector_data = duckdb::FlatVector::GetData<duckdb::string_t>(vector);
