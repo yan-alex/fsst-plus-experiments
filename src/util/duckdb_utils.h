@@ -3,8 +3,6 @@
 //
 #include "duckdb.hpp"
 
-#ifndef DUCKDB_UTILS_H
-#define DUCKDB_UTILS_H
 
 using namespace duckdb;
 
@@ -23,5 +21,3 @@ inline void extract_strings_from_data_chunk(const unique_ptr<DataChunk>& data_ch
         strIn.push_back(reinterpret_cast<const unsigned char*>(stored_str.c_str())); // c_str() returns a pointer to the internal character array, which is a temporary array owned by the string object.
     }
 }
-
-#endif //DUCKDB_UTILS_H

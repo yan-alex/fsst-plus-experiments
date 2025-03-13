@@ -3,41 +3,8 @@
 #include <vector>
 #include "config.h"
 
-struct SuffixData {
-    uint8_t prefix_length; // uint8_t = unsigned char = 8 bits
-    unsigned char* encoded_suffix;
-
-    bool hasPrefix() const {
-        return prefix_length > 0;
-    }
-};
-
-struct SuffixDataWithPrefix: SuffixData {
-    unsigned short jumpback_offset; // unsigned short = 16 bits
-    SuffixDataWithPrefix() = default;
-
-    // Constructor declaration
-    SuffixDataWithPrefix(unsigned char prefix_length, unsigned short jumpback_offset, unsigned char* encoded_suffix);
-
-};
-
-// Inline definition of SuffixDataWithPrefix constructor
-inline SuffixDataWithPrefix::SuffixDataWithPrefix(unsigned char prefix_length, unsigned short jumpback_offset, unsigned char* encoded_suffix)
-: SuffixData{ prefix_length, encoded_suffix }, jumpback_offset(jumpback_offset)
-{}
 
 
-struct RunHeader {
-    uint8_t base_offset; // 8 bits
-    uint8_t num_strings;// 8 bits
-    std::vector<uint16_t> string_offsets;
-};
-
-struct CompressedBlock {
-    RunHeader header;
-    uint8_t* prefix_data_area;
-    uint8_t* suffix_data_area;
-};
 
 struct FSSTPlusCompressionResult {
     // uint32_t n_blocks;
@@ -51,22 +18,5 @@ struct CheckpointInfo {
     size_t checkpoint_similarity_chunk_index;
 };
 
-struct BlockMetadata {
-    size_t suffix_area_start_index = 0; // start index for this block into all suffixes (stored in suffix_compression_result)
-    size_t prefix_area_start_index = 0; // start index for this block into all prefixes (stored in prefix_compression_result)
-
-    size_t suffix_n_in_block = 0; // number of strings inside the block
-    uint16_t suffix_offset_current = 0;
-    std::array<uint16_t, config::compressed_block_granularity> suffix_offsets_from_first_suffix;
-    std::array<uint8_t, config::compressed_block_granularity> suffix_encoded_prefix_lengths; // the length of the prefix for suffix i
-    std::array<uint8_t, config::compressed_block_granularity> suffix_prefix_index; // the index of the prefix for suffix i
-
-    size_t prefix_n_in_block = 0; // number of strings inside the block
-    size_t prefix_last_index_added = UINT64_MAX;
-    size_t prefix_area_size = 0;
-    std::array<uint16_t, config::compressed_block_granularity> prefix_offsets_from_first_prefix;
-
-    size_t block_size = 0;
-};
 
 void print_compression_stats(size_t total_strings_amount, size_t total_string_size, size_t total_compressed_string_size);

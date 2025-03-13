@@ -5,9 +5,10 @@
 #include "fsst_plus.h"
 #include "cleaving.h"
 #include "basic_fsst.h"
-
 #include "duckdb_utils.h"
 #include <string>
+#include "block_sizer.h"
+#include "block_writer.h"
 
 namespace config {
 	constexpr size_t total_strings = 1000; // # of input strings
@@ -23,34 +24,6 @@ size_t calc_encoded_strings_size(const FSSTCompressionResult& compression_result
 		result += compression_result.encoded_strings_length[i];
 	}
 	return result;
-}
-
-size_t find_similarity_chunk_corresponding_to_index(const size_t& target_index, const std::vector<SimilarityChunk>& similarity_chunks) {
-	// Binary search
-	size_t l =  0, r = similarity_chunks.size()-1;
-	while (l <= r) {
-		const size_t m = l + (r - l) / 2;
-		if (similarity_chunks[m].start_index < target_index && similarity_chunks[m + 1].start_index  <= target_index) {
-			l = m + 1;
-			continue;
-		}
-		if (target_index < similarity_chunks[m].start_index ) {
-			r = m - 1;
-			continue;
-		}
-		return m;
-	}
-	std::cerr << "Couldn't find_similarity_chunk_corresponding_to_index: "<< target_index <<"\n";
-	throw std::logic_error("ERROR on find_similarity_chunk_corresponding_to_index()");
-}
-
-
-size_t calculate_compressed_suffix_byte_size(size_t encoded_suffix_size, const SimilarityChunk &chunk) {
-	size_t compressed_string_byte_size = encoded_suffix_size + 8;
-	if (chunk.prefix_length != 0) {
-		compressed_string_byte_size += 16; // 16 for jumpback offset
-	}
-	return compressed_string_byte_size;
 }
 
 void allocate_maximum(uint8_t*& compression_result_data, FSSTCompressionResult prefix_compression_result, FSSTCompressionResult suffix_compression_result, std::vector<SimilarityChunk> similarity_chunks) {
@@ -120,129 +93,6 @@ void decompress(uint8_t * data, const fsst_decoder_t & fsst_decoder_prefix, cons
 		}
 	}
 };
-
-void calculate_block_size(std::vector<SimilarityChunk> similarity_chunks, FSSTCompressionResult prefix_compression_result, FSSTCompressionResult suffix_compression_result, BlockMetadata &b) {
-	// Each blocks starts with the num_strings (uint8_t) and the base offset (uint8_t)
-	size_t initial_block_size = sizeof(uint8_t) + sizeof(uint8_t);
-	b.block_size += initial_block_size;
-
-	while (b.suffix_n_in_block < config::compressed_block_granularity) {
-		const size_t suffix_index = b.suffix_area_start_index + b.suffix_n_in_block;
-		size_t prefix_index_for_suffix = find_similarity_chunk_corresponding_to_index(suffix_index, similarity_chunks);
-		const SimilarityChunk &chunk = similarity_chunks[prefix_index_for_suffix];
-		const bool suffix_has_prefix = chunk.prefix_length != 0;
-
-		if (prefix_index_for_suffix != b.prefix_last_index_added) {
-			// we add a new prefix to our block. The block grows only by the size of the encoded prefix
-			const size_t prefix_size =  prefix_compression_result.encoded_strings_length[prefix_index_for_suffix];
-			const size_t block_size_with_prefix = b.block_size + prefix_size;
-
-			// exit loop if we can't fit prefix
-			if (block_size_with_prefix >= config::compressed_block_byte_capacity) {
-				break;
-			}
-
-			std::cout << "Add Prefix " << b.prefix_n_in_block << " Length=" << prefix_size << '\n';
-
-			// increase the number of prefixes for this block, add the size to the block size
-			b.prefix_offsets_from_first_prefix[b.prefix_n_in_block] = b.prefix_area_size;
-			b.prefix_n_in_block += 1;
-			b.prefix_area_size += prefix_size;
-			b.block_size += prefix_size;
-
-
-			// make sure we don't add it again
-			b.prefix_last_index_added = prefix_index_for_suffix;
-		}
-
-		// calculate the potential size of the suffix
-		size_t suffix_total_size = 0;
-		// 1) We also have the encoded suffix
-		suffix_total_size += suffix_compression_result.encoded_strings_length[suffix_index];
-		// 2) We will always add the size of the prefix for this suffix, 0 if there is no prefix
-		suffix_total_size += sizeof(uint8_t);
-		// 3) Prefix length != zero: We have to add the jumpback (uint16_t)
-		if (suffix_has_prefix) {
-			suffix_total_size += sizeof(uint16_t);
-		}
-		// 4) This means we have to add a new string offset in the block-header (uint16_t)
-		constexpr size_t suffix_block_header_size = sizeof(uint16_t);
-
-		// exit loop if we can't fit suffix
-		if (b.block_size + suffix_total_size + suffix_block_header_size >= config::compressed_block_byte_capacity) {
-			break;
-		}
-		// store the string offset
-		b.suffix_offsets_from_first_suffix[b.suffix_n_in_block] = b.suffix_offset_current;
-		b.suffix_encoded_prefix_lengths[b.suffix_n_in_block] = prefix_compression_result.encoded_strings_length[prefix_index_for_suffix]; // the ENCODED prefix length
-		b.suffix_prefix_index[b.suffix_n_in_block] = b.prefix_n_in_block - 1; // as we already increased prefix_n_in_block before
-		b.suffix_offset_current += suffix_total_size;
-
-		// we can add the suffix
-		b.block_size += suffix_total_size;
-		b.suffix_n_in_block += 1;
-	}
-
-	std::cout << "N Strings: " << b.suffix_n_in_block << " N Prefixes: " << b.prefix_n_in_block << " Block size: " <<b.block_size << " Pre size: " <<b.prefix_area_size << std::endl;
-}
-
-void write_block(FSSTPlusCompressionResult compression_result, FSSTCompressionResult prefix_compression_result, FSSTCompressionResult suffix_compression_result, const BlockMetadata b) {
-	uint8_t* current_data_ptr = compression_result.data;
-
-	// A) WRITE THE HEADER
-
-	// A 1) Write the number of strings as an uint_8
-	Store<uint8_t>(b.suffix_n_in_block, current_data_ptr);
-	current_data_ptr += sizeof(uint8_t);
-	// A 2) Write the string_offsets[]
-	for (size_t i = 0; i < b.suffix_n_in_block; i++) {
-		uint16_t offset_array_size_to_go = (b.suffix_n_in_block-i) * sizeof(uint16_t);
-		uint16_t string_offset = b.prefix_area_size + offset_array_size_to_go + b.suffix_offsets_from_first_suffix[i];
-		Store<uint16_t>(string_offset, current_data_ptr);
-		current_data_ptr += sizeof(uint16_t);
-	}
-
-	// B) WRITE THE PREFIX AREA
-	for (size_t i = 0; i < b.prefix_n_in_block; i++) {
-		const size_t prefix_index = b.prefix_area_start_index + i;
-		const size_t prefix_length = prefix_compression_result.encoded_strings_length[prefix_index];
-
-		std::cout << "Write Prefix " << i << " Length=" << prefix_length << '\n';
-		const unsigned char * prefix_start = prefix_compression_result.encoded_strings[prefix_index];
-		memcpy(current_data_ptr, prefix_start, prefix_length);
-		current_data_ptr += prefix_length;
-	}
-
-	// C) WRITE SUFFIX AREA
-	for (size_t i = 0; i < b.suffix_n_in_block; i ++){
-		const size_t suffix_index = b.suffix_area_start_index + i;
-
-		uint8_t prefix_index_for_suffix = b.suffix_prefix_index[suffix_index];
-		uint8_t suffix_prefix_length = b.suffix_encoded_prefix_lengths[suffix_index];
-		const bool suffix_has_prefix = suffix_prefix_length != 0;
-
-		// write the length of the prefix, can be zero
-		Store<uint8_t>(suffix_prefix_length, current_data_ptr);
-		current_data_ptr += sizeof(uint8_t);
-
-		// if there is a prefix, calculate offset and store it
-		if (suffix_has_prefix) {
-			size_t prefix_offset_from_first_prefix = b.prefix_offsets_from_first_prefix[prefix_index_for_suffix];
-			size_t suffix_offset_from_first_suffix = b.suffix_offsets_from_first_suffix[suffix_index];
-			uint16_t prefix_jumpback_offset = (b.prefix_area_size - prefix_offset_from_first_prefix) + suffix_offset_from_first_suffix;
-
-			Store<uint16_t>(prefix_jumpback_offset, current_data_ptr);
-			current_data_ptr += sizeof(uint16_t);
-		}
-
-		// write the suffix
-		const size_t suffix_length = suffix_compression_result.encoded_strings_length[suffix_index];
-		const unsigned char * suffix_start = suffix_compression_result.encoded_strings[suffix_index];
-		memcpy(current_data_ptr, suffix_start, suffix_length);
-		current_data_ptr += suffix_length;
-	}
-	std::cout << b.block_size << "\n";
-}
 
 int main() {
 	DuckDB db(nullptr);
@@ -327,18 +177,22 @@ int main() {
 
 	allocate_maximum(compression_result.data, prefix_compression_result, suffix_compression_result, similarity_chunks);
 
+	size_t suffix_area_start_index = 0; // start index for this block into all suffixes (stored in suffix_compression_result)
+	size_t prefix_area_start_index = 0; // start index for this block into all prefixes (stored in prefix_compression_result)
 
 	BlockMetadata b;
-	// *** calculate the size for the next block to insert ***
-	calculate_block_size(similarity_chunks, prefix_compression_result, suffix_compression_result, b);
+	// update metadata with the relevant info
+	calculate_block_size(similarity_chunks, prefix_compression_result, suffix_compression_result, b, suffix_area_start_index);
 
+	// use metadata to write correctly
+	write_block(compression_result, prefix_compression_result, suffix_compression_result, b, suffix_area_start_index, prefix_area_start_index);
 
-	// *** WRITE THE BLOCK NOW WHERE WE NOW HOW MANY STRINGS TO PUT IN ***
-	write_block(compression_result, prefix_compression_result, suffix_compression_result, b);
+	// go on to next block
+	suffix_area_start_index += b.suffix_n_in_block;
+	prefix_area_start_index += b.prefix_n_in_block;
 
-	// decompress to check
+	// decompress to check all went well
 	decompress(compression_result.data, fsst_decoder(prefix_compression_result.encoder), fsst_decoder(suffix_compression_result.encoder));
-
 
 	// compression_result.run_start_offsets = {nullptr}; // Placeholder
 	// total_compressed_string_size += compress(prefixLenIn, prefixStrIn, suffixLenIn, suffixStrIn, similarity_chunks, compression_result);

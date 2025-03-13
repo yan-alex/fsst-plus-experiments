@@ -7,8 +7,6 @@
 #include <iostream>
 #include <vector>
 
-#ifndef UTILS_H
-#define UTILS_H
 
 inline void print_strings(const std::vector<size_t> &lenIn, std::vector<const unsigned char *> &strIn) {
     // Print strings
@@ -73,4 +71,3 @@ inline void print_compression_stats(size_t total_strings_amount, size_t total_st
 	std::cout << "Compressed size: " << total_compressed_string_size << " bytes\n";
 	std::cout << "Compression factor: " << (double)(total_string_size) / total_compressed_string_size << "\n\n";
 }
-#endif // UTILS_H
