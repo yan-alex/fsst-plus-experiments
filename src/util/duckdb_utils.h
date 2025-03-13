@@ -15,14 +15,12 @@ inline void extract_strings_from_data_chunk(const unique_ptr<DataChunk>& data_ch
 
     // Populate lenIn and strIn
     for (size_t i = 0; i < data_chunk->size(); i++) {
-        // if (!vector_data[i].Empty()) {
         std::string str = vector_data[i].GetString();
 
         original_strings.push_back(str);
         const std::string &stored_str = original_strings.back(); // Creates a reference to the string that was just added to the vector.
         lenIn.push_back(stored_str.size());
         strIn.push_back(reinterpret_cast<const unsigned char*>(stored_str.c_str())); // c_str() returns a pointer to the internal character array, which is a temporary array owned by the string object.
-        // }
     }
 }
 

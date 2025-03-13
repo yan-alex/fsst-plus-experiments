@@ -1,3 +1,8 @@
+#pragma once
+#include <array>
+#include <vector>
+#include "config.h"
+
 struct SuffixData {
     uint8_t prefix_length; // uint8_t = unsigned char = 8 bits
     unsigned char* encoded_suffix;
@@ -44,6 +49,24 @@ struct FSSTPlusCompressionResult {
 struct CheckpointInfo {
     size_t checkpoint_string_index;
     size_t checkpoint_similarity_chunk_index;
+};
+
+struct BlockMetadata {
+    size_t suffix_area_start_index = 0; // start index for this block into all suffixes (stored in suffix_compression_result)
+    size_t prefix_area_start_index = 0; // start index for this block into all prefixes (stored in prefix_compression_result)
+
+    size_t suffix_n_in_block = 0; // number of strings inside the block
+    uint16_t suffix_offset_current = 0;
+    std::array<uint16_t, config::compressed_block_granularity> suffix_offsets_from_first_suffix;
+    std::array<uint8_t, config::compressed_block_granularity> suffix_encoded_prefix_lengths; // the length of the prefix for suffix i
+    std::array<uint8_t, config::compressed_block_granularity> suffix_prefix_index; // the index of the prefix for suffix i
+
+    size_t prefix_n_in_block = 0; // number of strings inside the block
+    size_t prefix_last_index_added = UINT64_MAX;
+    size_t prefix_area_size = 0;
+    std::array<uint16_t, config::compressed_block_granularity> prefix_offsets_from_first_prefix;
+
+    size_t block_size = 0;
 };
 
 void print_compression_stats(size_t total_strings_amount, size_t total_string_size, size_t total_compressed_string_size);
