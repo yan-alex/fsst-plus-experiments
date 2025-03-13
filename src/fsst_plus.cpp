@@ -422,14 +422,15 @@ int main() {
 
 	// *** calculate the size for the next block to insert ***
 
-	size_t suffix_start_index = {0}; // index at the beginning of the block
+	size_t suffix_area_start_index = {0}; // start index for this block into all suffixes (stored in suffix_compression_result)
+	size_t prefix_area_start_index = {0}; // start index for this block into all prefixes (stored in prefix_compression_result)
+
 	size_t suffix_n_in_block = 0; // number of strings inside the block
 	uint16_t suffix_offset_current = 0;
 	uint16_t suffix_offsets_from_first_suffix[config::compressed_block_granularity];
-	uint8_t suffix_prefix_lengths[config::compressed_block_granularity]; // the length of the prefix for suffix i
+	uint8_t suffix_encoded_prefix_lengths[config::compressed_block_granularity]; // the length of the prefix for suffix i
 	uint8_t suffix_prefix_index[config::compressed_block_granularity]; // the index of the prefix for suffix i
 
-	size_t prefix_start_index = {0};
 	size_t prefix_n_in_block = 0; // number of strings inside the block
 	size_t prefix_last_index_added = UINT64_MAX;
 	size_t prefix_area_size = 0;
@@ -442,7 +443,7 @@ int main() {
 	block_size += initial_block_size;
 
 	while (suffix_n_in_block < config::compressed_block_granularity) {
-		const size_t suffix_index = suffix_start_index + suffix_n_in_block;
+		const size_t suffix_index = suffix_area_start_index + suffix_n_in_block;
 		size_t prefix_index_for_suffix = find_similarity_chunk_corresponding_to_index(suffix_index, similarity_chunks);
 		const SimilarityChunk &chunk = similarity_chunks[prefix_index_for_suffix];
 		const bool suffix_has_prefix = chunk.prefix_length != 0;
@@ -489,7 +490,7 @@ int main() {
 		}
 		// store the string offset
 		suffix_offsets_from_first_suffix[suffix_n_in_block] = suffix_offset_current;
-		suffix_prefix_lengths[suffix_n_in_block] = prefix_compression_result.encoded_strings_length[prefix_index_for_suffix]; // the ENCODED prefix length
+		suffix_encoded_prefix_lengths[suffix_n_in_block] = prefix_compression_result.encoded_strings_length[prefix_index_for_suffix]; // the ENCODED prefix length
 		suffix_prefix_index[suffix_n_in_block] = prefix_n_in_block - 1; // as we already increased prefix_n_in_block before
 		suffix_offset_current += suffix_total_size;
 
@@ -518,7 +519,7 @@ int main() {
 
 	// B) WRITE THE PREFIX AREA
 	for (size_t i = 0; i < prefix_n_in_block; i++) {
-		const size_t prefix_index = prefix_start_index + i;
+		const size_t prefix_index = prefix_area_start_index + i;
 		const size_t prefix_length = prefix_compression_result.encoded_strings_length[prefix_index];
 
 		std::cout << "Write Prefix " << i << " Length=" << prefix_length << '\n';
@@ -529,10 +530,10 @@ int main() {
 
 	// C) WRITE SUFFIX AREA
 	for (size_t i = 0; i < suffix_n_in_block; i ++){
-		const size_t suffix_index = suffix_start_index + i;
+		const size_t suffix_index = suffix_area_start_index + i;
 
 		uint8_t prefix_index_for_suffix = suffix_prefix_index[suffix_index];
-		uint8_t suffix_prefix_length = suffix_prefix_lengths[suffix_index];
+		uint8_t suffix_prefix_length = suffix_encoded_prefix_lengths[suffix_index];
 		const bool suffix_has_prefix = suffix_prefix_length != 0;
 
 		// write the length of the prefix, can be zero
@@ -555,7 +556,7 @@ int main() {
 		memcpy(current_data_ptr, suffix_start, suffix_length);
 		current_data_ptr += suffix_length;
 	}
-
+	std::cout << block_size << "\n";
 
 	//DECOMPRESS TO CHECK
 	decompress(compression_result.data, fsst_decoder(prefix_compression_result.encoder), fsst_decoder(suffix_compression_result.encoder));
