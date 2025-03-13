@@ -17,66 +17,49 @@ namespace config {
     constexpr bool print_split_points = true; // prints compressed corpus displaying split points
 }
 
-size_t calc_encoded_strings_size(const FSSTCompressionResult &compression_result) {
-    size_t result = 0;
-    const size_t size = compression_result.encoded_strings_length.size();
-    for (size_t i = 0; i < size; ++i) {
-        result += compression_result.encoded_strings_length[i];
-    }
-    return result;
-}
-
-void allocate_maximum(uint8_t *&compression_result_data, const FSSTCompressionResult &prefix_compression_result,
-                      const FSSTCompressionResult &suffix_compression_result) {
-    size_t result = {0};
-
-    const size_t ns = suffix_compression_result.encoded_strings.size();
-    const size_t ng = std::ceil(static_cast<double>(ns) / 128);
-    const size_t all_group_overhead = ng * (1 + 1 + 128 * 2);
-    result += all_group_overhead;
-    result += calc_encoded_strings_size(prefix_compression_result);
-    result += calc_encoded_strings_size(suffix_compression_result);
-    result += ns * 3;
-
-    compression_result_data = new uint8_t[result];
-}
-
-void decompress(const uint8_t *data, const fsst_decoder_t &fsst_decoder_prefix,
-                const fsst_decoder_t &fsst_decoder_suffix) {
-    const auto n_strings = Load<uint8_t>(data);
-    data += sizeof(uint8_t);
+void decompress_block(const uint8_t *block_start, const fsst_decoder_t &fsst_decoder_prefix,
+                      const fsst_decoder_t &fsst_decoder_suffix) {
+    const auto n_strings = Load<uint8_t>(block_start);
+    const uint8_t *string_offsets_addr = block_start + sizeof(uint8_t);
 
     constexpr auto BUFFER_SIZE = 100000;
     auto *result = new unsigned char[BUFFER_SIZE];
 
     // todo: we can't decompress the last string at the moment
     for (int i = 0; i < (n_strings - 1) * sizeof(uint16_t); i += sizeof(uint16_t)) {
-        const auto curr_string_offset = data + i;
+        const auto curr_string_offset = string_offsets_addr + i;
         const auto offset = Load<uint16_t>(curr_string_offset);
         const auto next_offset = Load<uint16_t>(curr_string_offset + sizeof(uint16_t));
-        const uint16_t full_suffix_length = next_offset + sizeof(uint16_t) - offset;
+
         // Add +sizeof(uint16_t) because next offset starts from itself
+        const uint16_t full_suffix_length = next_offset + sizeof(uint16_t) - offset;
 
-        const uint8_t *start_suffix = curr_string_offset + offset;
+        const uint8_t *prefix_length_addr = curr_string_offset + offset;
+        const auto prefix_length = Load<uint8_t>(prefix_length_addr);
 
-        const auto prefix_length = Load<uint8_t>(start_suffix);
-        start_suffix += sizeof(uint8_t);
         if (prefix_length == 0) {
+            const uint8_t *encoded_suffix_addr = prefix_length_addr + sizeof(uint8_t);
             // suffix only
-            const size_t decompressed_size = fsst_decompress(&fsst_decoder_suffix, full_suffix_length - sizeof(uint8_t),
-                                                             start_suffix, BUFFER_SIZE, result);
+            const size_t decompressed_suffix_size = fsst_decompress(&fsst_decoder_suffix,
+                                                                    full_suffix_length - sizeof(uint8_t),
+                                                                    encoded_suffix_addr, BUFFER_SIZE, result);
             std::cout << i / 2 << " decompressed: ";
-            for (int j = 0; j < decompressed_size; j++) {
+            for (int j = 0; j < decompressed_suffix_size; j++) {
                 std::cout << result[j];
             }
             std::cout << "\n";
         } else {
-            const auto jumpback_offset = Load<uint16_t>(start_suffix);
-            start_suffix += sizeof(uint16_t);
-            const auto start_prefix = start_suffix - jumpback_offset - sizeof(uint8_t) - sizeof(uint16_t);
+            const uint8_t *jumpback_offset_addr = prefix_length_addr + sizeof(uint8_t);
+            const auto jumpback_offset = Load<uint16_t>(jumpback_offset_addr);
+
+            const uint8_t *encoded_suffix_addr = jumpback_offset_addr + sizeof(uint16_t);
+
+            const uint8_t *encoded_prefix_addr =
+                    encoded_suffix_addr - jumpback_offset - sizeof(uint8_t) - sizeof(uint16_t);
 
             // Step 1) Decompress prefix
-            const size_t decompressed_prefix_size = fsst_decompress(&fsst_decoder_prefix, prefix_length, start_prefix,
+            const size_t decompressed_prefix_size = fsst_decompress(&fsst_decoder_prefix, prefix_length,
+                                                                    encoded_prefix_addr,
                                                                     BUFFER_SIZE, result);
             std::cout << i / 2 << " decompressed: ";
             for (int j = 0; j < decompressed_prefix_size; j++) {
@@ -87,7 +70,7 @@ void decompress(const uint8_t *data, const fsst_decoder_t &fsst_decoder_prefix,
             const size_t decompressed_suffix_size = fsst_decompress(&fsst_decoder_suffix,
                                                                     full_suffix_length - sizeof(uint8_t) - sizeof(
                                                                         uint16_t),
-                                                                    start_suffix,
+                                                                    encoded_suffix_addr,
                                                                     BUFFER_SIZE, result);
             for (int j = 0; j < decompressed_suffix_size; j++) {
                 std::cout << result[j];
@@ -180,13 +163,14 @@ int main() {
     FSSTCompressionResult suffix_compression_result = fsst_compress(suffixLenIn, suffixStrIn);
     // size_t encoded_suffixes_byte_size = calc_encoded_strings_size(suffix_result);
 
-    allocate_maximum(compression_result.data, prefix_compression_result, suffix_compression_result);
-
-    size_t suffix_area_start_index = 0;
-    // start index for this block into all suffixes (stored in suffix_compression_result)
-    size_t prefix_area_start_index = 0;
+    // Allocate the maximum size possible for the corpus
+    compression_result.data = new uint8_t[calc_max_fsstplus_data_size(prefix_compression_result,
+                                                                      suffix_compression_result)];
     // start index for this block into all prefixes (stored in prefix_compression_result)
-
+    size_t prefix_area_start_index = 0;
+    // start index for this block into all suffixes (stored in suffix_compression_result)
+    size_t suffix_area_start_index = 0;
+    
     BlockMetadata b;
     // update metadata with the relevant info
     calculate_block_size(similarity_chunks, prefix_compression_result, suffix_compression_result, b,
@@ -197,12 +181,12 @@ int main() {
                 prefix_area_start_index);
 
     // go on to next block
-    suffix_area_start_index += b.suffix_n_in_block;
     prefix_area_start_index += b.prefix_n_in_block;
+    suffix_area_start_index += b.suffix_n_in_block;
 
     // decompress to check all went well
-    decompress(compression_result.data, fsst_decoder(prefix_compression_result.encoder),
-               fsst_decoder(suffix_compression_result.encoder));
+    decompress_block(compression_result.data, fsst_decoder(prefix_compression_result.encoder),
+                     fsst_decoder(suffix_compression_result.encoder));
 
     // compression_result.run_start_offsets = {nullptr}; // Placeholder
     // total_compressed_string_size += compress(prefixLenIn, prefixStrIn, suffixLenIn, suffixStrIn, similarity_chunks, compression_result);

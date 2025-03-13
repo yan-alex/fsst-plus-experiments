@@ -1,5 +1,6 @@
-#ifndef BASIC_FSST_H
-#define BASIC_FSST_H
+#pragma once
+#include <fsst.h>
+#include <print_utils.h>
 
 #include "duckdb.hpp"
 #include <string>
@@ -12,7 +13,7 @@ struct FSSTCompressionResult {
 };
 
 inline fsst_encoder_t *create_encoder(const std::vector<size_t> &lenIn, std::vector<const unsigned char *> &strIn) {
-    const int zeroTerminated = 0; // DuckDB strings are not zero-terminated
+    constexpr int zeroTerminated = 0; // DuckDB strings are not zero-terminated
     fsst_encoder_t *encoder = fsst_create(
         lenIn.size(), /* IN: number of strings in batch to sample from. */
         lenIn.data(), /* IN: byte-lengths of the inputs */
@@ -33,14 +34,14 @@ inline size_t calc_symbol_table_size(fsst_encoder_t *encoder) {
     return result;
 }
 
-inline void verify_decompression_correctness(std::vector<std::string> &original_strings, std::vector<size_t> &lenIn,
-                                             std::vector<size_t> &lenOut, std::vector<unsigned char *> &strOut,
-                                             size_t num_compressed, fsst_decoder_t &decoder) {
+inline void verify_decompression_correctness(const std::vector<std::string> &original_strings, const std::vector<size_t> &lenIn,
+                                             const std::vector<size_t> &lenOut, const std::vector<unsigned char *> &strOut,
+                                             const size_t num_compressed, const fsst_decoder_t &decoder) {
     for (size_t i = 0; i < num_compressed; i++) {
         // Allocate decompression buffer
         auto *decompressed = static_cast<unsigned char *>(malloc(lenIn[i]));
 
-        size_t decompressed_size = fsst_decompress(
+        const size_t decompressed_size = fsst_decompress(
             &decoder, /* IN: use this symbol table for compression. */
             lenOut[i], /* IN: byte-length of compressed string. */
             strOut[i], /* IN: compressed string. */
@@ -152,7 +153,7 @@ inline void run_basic_fsst(duckdb::Connection &con, const std::string &query) {
         }
         total_compressed_string_size += calc_symbol_table_size(encoder);
         total_strings_amount += lenIn.size();
-        for (size_t string_length: lenIn) {
+        for (const size_t string_length: lenIn) {
             total_string_size += string_length;
         }
 
@@ -168,7 +169,7 @@ inline void run_basic_fsst(duckdb::Connection &con, const std::string &query) {
     // fsst_destroy(encoder);
 }
 
-FSSTCompressionResult fsst_compress(const std::vector<size_t> &lenIn, std::vector<const unsigned char *> &strIn) {
+inline FSSTCompressionResult fsst_compress(const std::vector<size_t> &lenIn, std::vector<const unsigned char *> &strIn) {
     // Create FSST encoder
     fsst_encoder_t *encoder = create_encoder(lenIn, strIn);
 
@@ -204,9 +205,9 @@ FSSTCompressionResult fsst_compress(const std::vector<size_t> &lenIn, std::vecto
     return FSSTCompressionResult{encoder, lenOut, strOut};
 }
 
-inline void verify_decompression_correctness(std::vector<std::string> &original_strings, std::vector<size_t> &lenIn,
-                                             std::vector<size_t> &lenOut, std::vector<unsigned char *> &strOut,
-                                             size_t &num_compressed, fsst_decoder_t &decoder) {
+inline void verify_decompression_correctness(const std::vector<std::string> &original_strings, const std::vector<size_t> &lenIn,
+                                             const std::vector<size_t> &lenOut, const std::vector<unsigned char *> &strOut,
+                                             const size_t &num_compressed, const fsst_decoder_t &decoder) {
     for (size_t i = 0; i < num_compressed; i++) {
         // Allocate decompression buffer
         auto *decompressed = static_cast<unsigned char *>(malloc(lenIn[i]));
@@ -229,4 +230,11 @@ inline void verify_decompression_correctness(std::vector<std::string> &original_
     }
     std::cout << "\nDecompression successful\n";
 }
-#endif // BASIC_FSST_H
+inline size_t calc_encoded_strings_size(const FSSTCompressionResult &compression_result) {
+    size_t result = 0;
+    const size_t size = compression_result.encoded_strings_length.size();
+    for (size_t i = 0; i < size; ++i) {
+        result += compression_result.encoded_strings_length[i];
+    }
+    return result;
+}
