@@ -1,7 +1,5 @@
-
+#pragma once
 #include <ranges>
-#ifndef BLOCK_TYPES_H
-#define BLOCK_TYPES_H
 
 struct BlockMetadata {
     size_t suffix_n_in_block = 0; // number of strings inside the block
@@ -17,4 +15,3 @@ struct BlockMetadata {
 
     size_t block_size = 0;
 };
-#endif // BLOCK_TYPES_H
