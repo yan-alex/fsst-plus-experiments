@@ -35,8 +35,10 @@ struct CompressedBlock {
 };
 
 struct FSSTPlusCompressionResult {
-    uint64_t* run_start_offsets;
-    std::vector<CompressedBlock> compressed_blocks;
+    // uint32_t n_blocks;
+    // uint32_t* blocks_offset; //TODO: Should be array of uint32
+    uint8_t* data;
+    // std::vector<CompressedBlock> compressed_blocks;
 };
 
 struct CheckpointInfo {
