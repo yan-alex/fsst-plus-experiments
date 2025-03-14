@@ -9,7 +9,7 @@
 #include <vector>
 
 
-inline void print_strings(const std::vector<size_t> &lenIn, const std::vector<const unsigned char *> &strIn) {
+inline void PrintStrings(const std::vector<size_t> &lenIn, const std::vector<const unsigned char *> &strIn) {
     // Print strings
     for (size_t i = 0; i < lenIn.size(); ++i) {
         std::cout << "i " << std::setw(3) << i << ": ";
@@ -20,7 +20,7 @@ inline void print_strings(const std::vector<size_t> &lenIn, const std::vector<co
     }
 };
 
-inline void print_string_with_split_points(
+inline void PrintStringWithSplitPoints(
     const std::vector<const unsigned char *> &strIn,
     const std::vector<size_t> &suffixLenIn,
     const std::vector<const unsigned char *> &suffixStrIn,
@@ -38,7 +38,7 @@ inline void print_string_with_split_points(
     std::cout << std::endl;
 }
 
-void print_decoder_symbol_table(const fsst_decoder_t &decoder) {
+void PrintDecoderSymbolTable(const fsst_decoder_t &decoder) {
     std::cout << "\n==============================================\n";
     std::cout << "\tSTART FSST Decoder Symbol Table:\n";
     std::cout << "==============================================\n";
@@ -66,7 +66,7 @@ void print_decoder_symbol_table(const fsst_decoder_t &decoder) {
     std::cout << "==============================================\n";
 }
 
-inline void print_compression_stats(
+inline void PrintCompressionStats(
     const size_t total_strings_amount,
     const size_t total_string_size,
     const size_t total_compressed_string_size

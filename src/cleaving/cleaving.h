@@ -7,7 +7,7 @@
 #include "../config.h" // Not needed but prevents ClionIDE from complaining
 
 // Sort all strings based on their starting characters truncated to the largest multiple of 8 bytes (up to config::max_prefix_size bytes)
-inline void truncated_sort(std::vector<size_t> &lenIn, std::vector<const unsigned char *> &strIn,
+inline void TruncatedSort(std::vector<size_t> &lenIn, std::vector<const unsigned char *> &strIn,
                            const size_t start_index, const size_t cleaving_run_n) {
     // Create index array
     std::vector<size_t> indices(cleaving_run_n);
@@ -39,11 +39,11 @@ inline void truncated_sort(std::vector<size_t> &lenIn, std::vector<const unsigne
     // Print strings
     if (config::print_sorted_corpus) {
         std::cout << "Sorted strings: \n";
-        print_strings(lenIn, strIn);
+        PrintStrings(lenIn, strIn);
     }
 }
 
-inline std::vector<SimilarityChunk> form_similarity_chunks(
+inline std::vector<SimilarityChunk> FormSimilarityChunks(
     std::vector<size_t> &lenIn,
     const std::vector<const unsigned char *> &strIn,
     const size_t start_index,
@@ -125,7 +125,7 @@ inline std::vector<SimilarityChunk> form_similarity_chunks(
     return chunks;
 }
 
-inline void cleave(const std::vector<size_t> &lenIn,
+inline void Cleave(const std::vector<size_t> &lenIn,
                    std::vector<const unsigned char *> &strIn,
                    const std::vector<SimilarityChunk> &similarity_chunks,
                    std::vector<size_t> &prefixLenIn,
@@ -148,7 +148,7 @@ inline void cleave(const std::vector<size_t> &lenIn,
             suffixLenIn.push_back(lenIn[j] - chunk.prefix_length);
             suffixStrIn.push_back(strIn[j] + chunk.prefix_length);
             if (config::print_split_points) {
-                print_string_with_split_points(strIn, suffixLenIn, suffixStrIn, chunk, j);
+                PrintStringWithSplitPoints(strIn, suffixLenIn, suffixStrIn, chunk, j);
             }
         }
     }

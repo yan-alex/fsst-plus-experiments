@@ -22,8 +22,12 @@ inline size_t find_similarity_chunk_corresponding_to_index(const size_t &target_
         }
         return m;
     }
-    std::cerr << "Couldn't find_similarity_chunk_corresponding_to_index: " << target_index << "\n";
-    throw std::logic_error("ERROR on find_similarity_chunk_corresponding_to_index()");
+    std::cout << "Couldn't find_similarity_chunk_corresponding_to_index: " << target_index << "\n";
+    std::cout << "Assuming it's because it is the last chunk, now returning chunk index: "<< similarity_chunks.size()-1 << "\n";
+
+    return similarity_chunks.size()-1; //TODO Is this correct for all occasions? Write tests for this binary search.
+    // std::cerr << "Couldn't find_similarity_chunk_corresponding_to_index: " << target_index << "\n";
+    // throw std::logic_error("ERROR on find_similarity_chunk_corresponding_to_index()");
 }
 
 

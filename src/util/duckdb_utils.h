@@ -7,7 +7,7 @@
 
 using namespace duckdb;
 
-inline void extract_strings_from_data_chunk(const unique_ptr<DataChunk> &data_chunk,
+inline void ExtractStringsFromDataChunk(const unique_ptr<DataChunk> &data_chunk,
                                             std::vector<std::string> &original_strings, std::vector<size_t> &lenIn,
                                             std::vector<const unsigned char *> &strIn) {
     auto &vector = data_chunk->data[0];
