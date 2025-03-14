@@ -5,175 +5,213 @@
 #include "fsst_plus.h"
 #include "cleaving.h"
 #include "basic_fsst.h"
-
 #include "duckdb_utils.h"
+#include <string>
+#include "block_sizer.h"
+#include "block_writer.h"
 
 namespace config {
-	constexpr size_t cleaving_run_n = 128; // number of elements per cleaving run. 	// TODO: Should be determined dynamically based on the string size. If the string is >32kb it can dreadfully compress to 64kb so we can't do jumpback. In that case cleaving_run_n = 1
-	constexpr size_t max_prefix_size = 120; // how far into the string to scan for a prefix. (max prefix size)
-	constexpr size_t total_strings = 2048; // how far into the string to scan for a prefix. (max prefix size)
-	constexpr bool print_sorted_corpus = false;
-	constexpr bool print_split_points = false; // prints compressed corpus displaying split points
+    constexpr size_t total_strings = 128; // # of input strings
+    constexpr size_t block_byte_capacity = UINT16_MAX; // ~64KB capacity
+    constexpr bool print_sorted_corpus = false;
+    constexpr bool print_split_points = true; // prints compressed corpus displaying split points
 }
 
-size_t calc_encoded_strings_size(const FSSTCompressionResult& prefix_sompression_result) {
-	size_t result = 0;
-	size_t size = prefix_sompression_result.encoded_strings_length.size();
-	for (size_t i = 0; i < size; ++i) {
-		result += prefix_sompression_result.encoded_strings_length[i];
-	}
-	return result;
+void decompress_block(const uint8_t *block_start, const fsst_decoder_t &fsst_decoder_prefix,
+                      const fsst_decoder_t &fsst_decoder_suffix) {
+    const auto n_strings = Load<uint8_t>(block_start);
+    const uint8_t *string_offsets_ptr = block_start + sizeof(uint8_t);
+
+    constexpr auto BUFFER_SIZE = 100000;
+    auto *result = new unsigned char[BUFFER_SIZE];
+
+    // todo: we can't decompress the last string at the moment
+    for (int i = 0; i < (n_strings - 1) * sizeof(uint16_t); i += sizeof(uint16_t)) {
+        const auto curr_string_offset = string_offsets_ptr + i;
+        const auto offset = Load<uint16_t>(curr_string_offset);
+        const auto next_offset = Load<uint16_t>(curr_string_offset + sizeof(uint16_t));
+
+        // Add +sizeof(uint16_t) because next offset starts from itself
+        const uint16_t full_suffix_length = next_offset + sizeof(uint16_t) - offset;
+
+        const uint8_t *prefix_length_ptr = curr_string_offset + offset;
+        const auto prefix_length = Load<uint8_t>(prefix_length_ptr);
+
+        if (prefix_length == 0) {
+            const uint8_t *encoded_suffix_ptr = prefix_length_ptr + sizeof(uint8_t);
+            // suffix only
+            const size_t decompressed_suffix_size = fsst_decompress(&fsst_decoder_suffix,
+                                                                    full_suffix_length - sizeof(uint8_t),
+                                                                    encoded_suffix_ptr, BUFFER_SIZE, result);
+            std::cout << i / 2 << " decompressed: ";
+            for (int j = 0; j < decompressed_suffix_size; j++) {
+                std::cout << result[j];
+            }
+            std::cout << "\n";
+        } else {
+            const uint8_t *jumpback_offset_ptr = prefix_length_ptr + sizeof(uint8_t);
+            const auto jumpback_offset = Load<uint16_t>(jumpback_offset_ptr);
+
+            const uint8_t *encoded_suffix_ptr = jumpback_offset_ptr + sizeof(uint16_t);
+
+            const uint8_t *encoded_prefix_ptr =
+                    encoded_suffix_ptr - jumpback_offset - sizeof(uint8_t) - sizeof(uint16_t);
+
+            // Step 1) Decompress prefix
+            const size_t decompressed_prefix_size = fsst_decompress(&fsst_decoder_prefix, prefix_length,
+                                                                    encoded_prefix_ptr,
+                                                                    BUFFER_SIZE, result);
+            std::cout << i / 2 << " decompressed: ";
+            for (int j = 0; j < decompressed_prefix_size; j++) {
+                std::cout << result[j];
+            }
+
+            // Step 2) Decompress suffix
+            const size_t decompressed_suffix_size = fsst_decompress(&fsst_decoder_suffix,
+                                                                    full_suffix_length - sizeof(uint8_t) - sizeof(
+                                                                        uint16_t),
+                                                                    encoded_suffix_ptr,
+                                                                    BUFFER_SIZE, result);
+            for (int j = 0; j < decompressed_suffix_size; j++) {
+                std::cout << result[j];
+            }
+            std::cout << "\n";
+        }
+    }
 }
-
-// Currently assumes each CompressedBlock has its own symbol table
-// returns total_compressed_size
-size_t compress(std::vector<size_t>& prefixLenIn, std::vector<const unsigned char *>& prefixStrIn,std::vector<size_t>& suffixLenIn, std::vector<const unsigned char *>& suffixStrIn, const std::vector<SimilarityChunk>& similarity_chunks, FSSTPlusCompressionResult& fsst_plus_compression_result) {
-	const size_t BLOCK_DATA_CAPACITY = UINT16_MAX; // ~64KB capacity
-
-	FSSTCompressionResult prefix_result = fsst_compress(prefixLenIn, prefixStrIn); //TODO: make a variant to use the same symbol table for prefix and suffix
-	size_t encoded_prefixes_size = calc_encoded_strings_size(prefix_result);
-
-	FSSTCompressionResult suffix_result = fsst_compress(suffixLenIn, suffixStrIn);
-	size_t encoded_suffixes_size = calc_encoded_strings_size(suffix_result);
-
-	if (encoded_prefixes_size + encoded_suffixes_size > BLOCK_DATA_CAPACITY) {
-		std::cerr << "Block Data Capacity Exceeded\n"; //TODO: Throws an error for now, should handle it gracefully in the future
-		throw std::logic_error("Block Data Capacity Exceeded");
-	}
-	// Gradually fill compressed block up to 64kb from prefix data area, and create a new compressed block when it's full.
-	CompressedBlock current_block;
-	size_t current_block_size = 0;
-
-	current_block.prefix_data_area = new uint8_t[BLOCK_DATA_CAPACITY]; // TODO: Is this a C-style array? Is there a better way to do this?
-	current_block.suffix_data_area = current_block.prefix_data_area + encoded_prefixes_size;
-
-	// This is where we will write to
-	uint8_t* prefix_writer = current_block.prefix_data_area;
-	uint8_t* suffix_writer = current_block.suffix_data_area;
-
-
-	for (size_t i = 0; i < similarity_chunks.size(); i++) {
-		const SimilarityChunk& chunk = similarity_chunks[i];
-		const size_t stop_index = i == similarity_chunks.size() - 1 ? suffix_result.encoded_strings_length.size() : similarity_chunks[i+1].start_index;
-		if (chunk.prefix_length == 0) {
-
-			//Write suffix
-			*suffix_writer++ = 0; // prefix_length = 0
-			for (size_t j = chunk.start_index; j < stop_index; j++) {
-				for (size_t k = 0; k < suffix_result.encoded_strings_length[j]; k++) {
-					*suffix_writer++ = suffix_result.encoded_strings[j][k];
-				}
-			}
-		} else {
-			//Write prefix
-			if (prefix_writer + chunk.prefix_length < current_block.suffix_data_area) { // If fits
-				for (size_t k = 0; k < prefix_result.encoded_strings_length[i]; k++) {
-					*prefix_writer++ = prefix_result.encoded_strings[i][k];
-				}
-			}
-
-			//Write suffix
-			*suffix_writer++ = chunk.prefix_length; // prefix_length = 0
-
-			uint16_t jumpback_offset = suffix_writer - (prefix_writer - 1); // jumpback offset. minus one because prefix_writer incremented after the write
-			memcpy(suffix_writer, &jumpback_offset, sizeof(jumpback_offset));
-			suffix_writer += sizeof(jumpback_offset);
-
-			for (size_t j = chunk.start_index; j < stop_index; j++) {
-				for (size_t k = 0; k < suffixLenIn[j]; k++) {
-					*suffix_writer++ = suffixStrIn[j][k];
-				}
-			}
-		}
-	}
-
-	size_t total_compressed_size = (prefix_writer - current_block.prefix_data_area) + (suffix_writer - current_block.suffix_data_area); //TODO: include symbol table?
-	total_compressed_size += calc_symbol_table_size(prefix_result.encoder);
-	total_compressed_size += calc_symbol_table_size(suffix_result.encoder);
-	return total_compressed_size;
-}
-
-
 
 int main() {
-	DuckDB db(nullptr);
-	Connection con(db);
+    DuckDB db(nullptr);
+    Connection con(db);
 
-	const string query = "SELECT Url FROM read_parquet('/Users/yanlannaalexandre/_DA_REPOS/fsst-plus-experiments/example_data/clickbenchurl.parquet') LIMIT " + std::to_string(config::total_strings) + ";";
-	// ======= RUN BASIC FSST TO COMPARE =======
-	run_basic_fsst(con, query);
+    const string query =
+            "SELECT Url FROM read_parquet('/Users/yanlannaalexandre/_DA_REPOS/fsst-plus-experiments/example_data/clickbenchurl.parquet') LIMIT "
+            + std::to_string(config::total_strings) + ";";
 
-	// Now continue with main's own processing
-	const auto result = con.Query(query);
-	auto data_chunk = result->Fetch();
+    // ======= RUN BASIC FSST TO COMPARE =======
+    RunBasicFSST(con, query);
 
-	size_t total_strings_amount = {0};
-	size_t total_string_size = {0};
-	size_t total_compressed_string_size = {0};
+    // Now continue with main's own processing
+    const auto result = con.Query(query);
+    auto data_chunk = result->Fetch();
 
-	std::cout <<
-		"===============================================\n"<<
-		"==========START FSST PLUS COMPRESSION==========\n"<<
-		"===============================================\n";
-	while (data_chunk) {
-		const size_t n = data_chunk->size();
-		std::cout << "🔷 " << n << " strings in DataChunk 🔷 \n";
+    size_t total_strings_amount = {0};
+    size_t total_string_size = {0};
+    size_t total_compressed_string_size = {0};
 
-		std::vector<std::string> original_strings;
-		original_strings.reserve(n);
+    std::cout <<
+            "===============================================\n" <<
+            "==========START FSST PLUS COMPRESSION==========\n" <<
+            "===============================================\n";
 
-		std::vector<size_t> lenIn;
-		lenIn.reserve(n);
+    const size_t n = std::min(config::amount_strings_per_symbol_table, config::total_strings);
 
-		std::vector<const unsigned char*> strIn;
-		strIn.reserve(n);
-		
-		// Populate lenIn and strIn
-		extract_strings_from_data_chunk(data_chunk, original_strings, lenIn, strIn);
-		
-		// Cleaving results will be stored here
-		std::vector<size_t> prefixLenIn;
-		prefixLenIn.reserve(n);
-		std::vector<const unsigned char*> prefixStrIn;
-		prefixStrIn.reserve(n);
-		std::vector<size_t> suffixLenIn;
-		suffixLenIn.reserve(n);
-		std::vector<const unsigned char*> suffixStrIn;
-		suffixStrIn.reserve(n);
+    std::vector<std::string> original_strings;
+    original_strings.reserve(n);
 
-		std::vector<SimilarityChunk> similarity_chunks;
-		similarity_chunks.reserve(n);
+    std::vector<size_t> lenIn;
+    lenIn.reserve(n);
+    std::vector<const unsigned char *> strIn;
+    strIn.reserve(n);
 
-		// Cleaving runs
-		for (size_t i = 0; i < n; i += config::cleaving_run_n) {
-			std::cout << "Current Cleaving Run coverage: " << i << ":" << i + config::cleaving_run_n - 1 << std::endl;
+    // Cleaving results will be stored here
+    std::vector<size_t> prefixLenIn;
+    prefixLenIn.reserve(n);
+    std::vector<const unsigned char *> prefixStrIn;
+    prefixStrIn.reserve(n);
+    std::vector<size_t> suffixLenIn;
+    suffixLenIn.reserve(n);
+    std::vector<const unsigned char *> suffixStrIn;
+    suffixStrIn.reserve(n);
 
-			truncated_sort(lenIn, strIn, i);
+    std::vector<SimilarityChunk> similarity_chunks;
+    similarity_chunks.reserve(n);
 
-			const std::vector<SimilarityChunk> cleaving_run_similarity_chunks = form_similarity_chunks(lenIn, strIn, i);
-			similarity_chunks.insert(similarity_chunks.end(),
-									 cleaving_run_similarity_chunks.begin(),
-									 cleaving_run_similarity_chunks.end());
-		}
-		cleave(lenIn, strIn, similarity_chunks, prefixLenIn, prefixStrIn, suffixLenIn, suffixStrIn);
+    std::cout << "🔷 " << n << " strings for this symbol table 🔷 \n";
+    while (data_chunk) {
+        const size_t data_chunk_size = data_chunk->size();
 
-		FSSTPlusCompressionResult compression_result;
-		compression_result.run_start_offsets = {nullptr}; // Placeholder
+        std::cout << "> " << data_chunk_size << " strings in DataChunk\n";
 
-		total_compressed_string_size += compress(prefixLenIn, prefixStrIn, suffixLenIn, suffixStrIn, similarity_chunks, compression_result);
+        // Populate lenIn and strIn
+        ExtractStringsFromDataChunk(data_chunk, original_strings, lenIn, strIn);
 
-		total_strings_amount += lenIn.size();
-		for (size_t string_length : lenIn) {
-			total_string_size += string_length;
-		}
+        data_chunk = result->Fetch();
+    }
 
-		// get the next chunk, continue loop
-		data_chunk = result->Fetch();
-	}
-	print_compression_stats(total_strings_amount, total_string_size, total_compressed_string_size);
+    // Cleaving runs
+    for (size_t i = 0; i < n; i += config::block_granularity) {
+        const size_t cleaving_run_n = std::min(lenIn.size() - i, config::block_granularity);
 
-	// // Cleanup
-	// std::cout << "Cleanup";
-	// fsst_destroy(encoder);
-	return 0;
+        std::cout << "Current Cleaving Run coverage: " << i << ":" << i + cleaving_run_n - 1 << std::endl;
+
+        TruncatedSort(lenIn, strIn, i, cleaving_run_n);
+
+        const std::vector<SimilarityChunk> cleaving_run_similarity_chunks = FormSimilarityChunks(
+            lenIn, strIn, i, cleaving_run_n);
+        similarity_chunks.insert(similarity_chunks.end(),
+                                 cleaving_run_similarity_chunks.begin(),
+                                 cleaving_run_similarity_chunks.end());
+    }
+
+    Cleave(lenIn, strIn, similarity_chunks, prefixLenIn, prefixStrIn, suffixLenIn, suffixStrIn);
+
+    FSSTPlusCompressionResult compression_result;
+
+    FSSTCompressionResult prefix_compression_result = FSSTCompress(prefixLenIn, prefixStrIn);
+    // size_t encoded_prefixes_byte_size = calc_encoded_strings_size(prefix_result);
+    FSSTCompressionResult suffix_compression_result = FSSTCompress(suffixLenIn, suffixStrIn);
+    // size_t encoded_suffixes_byte_size = calc_encoded_strings_size(suffix_result);
+
+    // Allocate the maximum size possible for the corpus
+    compression_result.data = new uint8_t[CalcMaxFSSTPlusDataSize(prefix_compression_result,
+                                                                      suffix_compression_result)];
+
+    size_t prefix_area_start_index = 0; // start index for this block into all prefixes (stored in prefix_compression_result)
+    size_t suffix_area_start_index = 0; // start index for this block into all suffixes (stored in suffix_compression_result)
+
+    uint8_t* next_block_start_ptr = compression_result.data;
+
+    // First write Global Header
+
+    while (suffix_area_start_index < n) {
+        BlockMetadata b;
+        // update metadata with the relevant info
+        CalculateBlockSize(similarity_chunks, prefix_compression_result, suffix_compression_result, b,
+                             suffix_area_start_index);
+
+        // use metadata to write correctly
+        next_block_start_ptr = WriteBlock(next_block_start_ptr, prefix_compression_result, suffix_compression_result, b, suffix_area_start_index,
+                    prefix_area_start_index);
+
+
+        // go on to next block
+        prefix_area_start_index += b.prefix_n_in_block;
+        suffix_area_start_index += b.suffix_n_in_block;
+    }
+
+
+    // decompress to check all went well
+    decompress_block(compression_result.data, fsst_decoder(prefix_compression_result.encoder),
+                     fsst_decoder(suffix_compression_result.encoder));
+
+
+
+
+    // compression_result.run_start_offsets = {nullptr}; // Placeholder
+    // total_compressed_string_size += compress(prefixLenIn, prefixStrIn, suffixLenIn, suffixStrIn, similarity_chunks, compression_result);
+
+    total_strings_amount += lenIn.size();
+    for (size_t string_length: lenIn) {
+        total_string_size += string_length;
+    }
+
+    PrintCompressionStats(total_strings_amount, total_string_size, total_compressed_string_size);
+    std::cout << "TODO: Save compressed data to the database.\n\n";
+    // get the next chunk, continue loop
+
+    // // Cleanup
+    // std::cout << "Cleanup";
+    // fsst_destroy(encoder);
+    return 0;
 }
