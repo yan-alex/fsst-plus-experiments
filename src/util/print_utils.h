@@ -35,7 +35,7 @@ inline void PrintStringWithSplitPoints(
     for (size_t j = 0; j < suffixLenIn[suffixLenIn.size() - 1]; j++) {
         std::cout << suffixStrIn[suffixStrIn.size() - 1][j];
     }
-    std::cout << std::endl;
+    std::cout << "\n";
 }
 
 void PrintDecoderSymbolTable(const fsst_decoder_t &decoder) {

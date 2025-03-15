@@ -9,6 +9,7 @@
 #include <string>
 #include "block_sizer.h"
 #include "block_writer.h"
+#include "block_decompressor.h"
 
 namespace config {
     constexpr size_t total_strings = 128; // # of input strings
@@ -17,66 +18,29 @@ namespace config {
     constexpr bool print_split_points = true; // prints compressed corpus displaying split points
 }
 
-void decompress_block(const uint8_t *block_start, const fsst_decoder_t &fsst_decoder_prefix,
-                      const fsst_decoder_t &fsst_decoder_suffix) {
-    const auto n_strings = Load<uint8_t>(block_start);
-    const uint8_t *string_offsets_ptr = block_start + sizeof(uint8_t);
 
-    constexpr auto BUFFER_SIZE = 100000;
-    auto *result = new unsigned char[BUFFER_SIZE];
+uint8_t *find_block_start(uint8_t *block_start_offsets, const int i) {
+    uint8_t *offset_ptr = block_start_offsets + (i * sizeof(uint32_t));
+    const uint16_t offset = Load<uint32_t>(offset_ptr);
+    uint8_t *block_start =  offset_ptr + offset;
+    return block_start;
+}
 
-    // todo: we can't decompress the last string at the moment
-    for (int i = 0; i < (n_strings - 1) * sizeof(uint16_t); i += sizeof(uint16_t)) {
-        const auto curr_string_offset = string_offsets_ptr + i;
-        const auto offset = Load<uint16_t>(curr_string_offset);
-        const auto next_offset = Load<uint16_t>(curr_string_offset + sizeof(uint16_t));
+void decompress_all(uint8_t *global_header, const fsst_decoder_t &prefix_decoder,
+                    const fsst_decoder_t &suffix_decoder) {
+    uint16_t num_blocks = Load<uint16_t>(global_header);
+    uint8_t *block_start_offsets = global_header + sizeof(uint16_t);
+    for (int i = 0; i < num_blocks; ++i) {
+        std::cout << " ------- Block " << i << "\n";
+        uint8_t *block_start = find_block_start(block_start_offsets, i);
+        /*
+         * Block stop is next block's start. Note that this also works for the last block, so no over-read,
+         * as we save an "extra" data_end_offset, pointing to where the last block stops. This is needed to
+         * calculate the length
+         */
+        uint8_t *block_stop = find_block_start(block_start_offsets, i + 1);
 
-        // Add +sizeof(uint16_t) because next offset starts from itself
-        const uint16_t full_suffix_length = next_offset + sizeof(uint16_t) - offset;
-
-        const uint8_t *prefix_length_ptr = curr_string_offset + offset;
-        const auto prefix_length = Load<uint8_t>(prefix_length_ptr);
-
-        if (prefix_length == 0) {
-            const uint8_t *encoded_suffix_ptr = prefix_length_ptr + sizeof(uint8_t);
-            // suffix only
-            const size_t decompressed_suffix_size = fsst_decompress(&fsst_decoder_suffix,
-                                                                    full_suffix_length - sizeof(uint8_t),
-                                                                    encoded_suffix_ptr, BUFFER_SIZE, result);
-            std::cout << i / 2 << " decompressed: ";
-            for (int j = 0; j < decompressed_suffix_size; j++) {
-                std::cout << result[j];
-            }
-            std::cout << "\n";
-        } else {
-            const uint8_t *jumpback_offset_ptr = prefix_length_ptr + sizeof(uint8_t);
-            const auto jumpback_offset = Load<uint16_t>(jumpback_offset_ptr);
-
-            const uint8_t *encoded_suffix_ptr = jumpback_offset_ptr + sizeof(uint16_t);
-
-            const uint8_t *encoded_prefix_ptr =
-                    encoded_suffix_ptr - jumpback_offset - sizeof(uint8_t) - sizeof(uint16_t);
-
-            // Step 1) Decompress prefix
-            const size_t decompressed_prefix_size = fsst_decompress(&fsst_decoder_prefix, prefix_length,
-                                                                    encoded_prefix_ptr,
-                                                                    BUFFER_SIZE, result);
-            std::cout << i / 2 << " decompressed: ";
-            for (int j = 0; j < decompressed_prefix_size; j++) {
-                std::cout << result[j];
-            }
-
-            // Step 2) Decompress suffix
-            const size_t decompressed_suffix_size = fsst_decompress(&fsst_decoder_suffix,
-                                                                    full_suffix_length - sizeof(uint8_t) - sizeof(
-                                                                        uint16_t),
-                                                                    encoded_suffix_ptr,
-                                                                    BUFFER_SIZE, result);
-            for (int j = 0; j < decompressed_suffix_size; j++) {
-                std::cout << result[j];
-            }
-            std::cout << "\n";
-        }
+        decompress_block(block_start, prefix_decoder, suffix_decoder, block_stop);
     }
 }
 
@@ -170,33 +134,74 @@ int main() {
     size_t prefix_area_start_index = 0; // start index for this block into all prefixes (stored in prefix_compression_result)
     size_t suffix_area_start_index = 0; // start index for this block into all suffixes (stored in suffix_compression_result)
 
-    uint8_t* next_block_start_ptr = compression_result.data;
 
     // First write Global Header
 
+    /*
+     * To write num_blocks, we must know how many blocks we have. But first let's
+     * calculate the size of each block (giving us also the number of blocks),
+     * allowing us to write block_start_offsets[] and data_end_offset also.
+     */
+
+    // First calculate total size of all blocks
+    std::vector<BlockWritingMetadata> wms;
+    std::vector<size_t> prefix_sum_block_sizes;
+
     while (suffix_area_start_index < n) {
-        BlockMetadata b;
-        // update metadata with the relevant info
-        CalculateBlockSize(similarity_chunks, prefix_compression_result, suffix_compression_result, b,
-                             suffix_area_start_index);
+        // Pick up where last left off
+        BlockWritingMetadata wm = wms.size() == 0 ? BlockWritingMetadata{} : wms[wms.size() - 1];
+        wm.suffix_n_in_block = 0; // reset suffix counter
+        wm.prefix_n_in_block = 0; // reset prefix counter
 
-        // use metadata to write correctly
-        next_block_start_ptr = WriteBlock(next_block_start_ptr, prefix_compression_result, suffix_compression_result, b, suffix_area_start_index,
-                    prefix_area_start_index);
+        // BlockWritingMetadata wm = BlockWritingMetadata{};
 
+        size_t block_size = CalculateBlockSizeAndPopulateWritingMetadata(
+            similarity_chunks, prefix_compression_result, suffix_compression_result, wm,
+            suffix_area_start_index);
+        size_t prefix_summed = prefix_sum_block_sizes.size() == 0
+                                        ? block_size
+                                        : prefix_sum_block_sizes[prefix_sum_block_sizes.size()] + block_size;
+        prefix_sum_block_sizes.push_back(prefix_summed);
+        wms.push_back(wm);
 
         // go on to next block
-        prefix_area_start_index += b.prefix_n_in_block;
-        suffix_area_start_index += b.suffix_n_in_block;
+        prefix_area_start_index += wm.prefix_n_in_block;
+        suffix_area_start_index += wm.suffix_n_in_block;
+    }
+    uint8_t* global_header_ptr = compression_result.data;
+
+    // Now we can write!
+
+    // A) write num_blocks
+    size_t n_blocks = prefix_sum_block_sizes.size();
+    Store<uint16_t>(n_blocks ,global_header_ptr);
+    global_header_ptr+=sizeof(uint16_t);
+
+    // B) write block_start_offsets[]
+    for (size_t i = 0; i < n_blocks; i++) {
+        size_t offsets_to_go = (n_blocks - i);
+        size_t global_header_size_ahead =
+                offsets_to_go * sizeof(uint32_t)
+                + sizeof(uint32_t); // data_end_offset size
+        size_t total_block_size_ahead =  i == 0 ? 0 : prefix_sum_block_sizes[i-1];
+
+        Store<uint32_t>(global_header_size_ahead + total_block_size_ahead, global_header_ptr);
+        global_header_ptr +=sizeof(uint32_t);
     }
 
+    // C) write data_end_offset
+    Store<uint32_t>(prefix_sum_block_sizes.back(),global_header_ptr);
+    global_header_ptr +=sizeof(uint32_t);
+
+    uint8_t* next_block_start_ptr = global_header_ptr;
+    for (BlockWritingMetadata wm: wms) {
+        // use metadata to write correctly
+        next_block_start_ptr = WriteBlock(next_block_start_ptr, prefix_compression_result, suffix_compression_result, wm);
+    }
 
     // decompress to check all went well
-    decompress_block(compression_result.data, fsst_decoder(prefix_compression_result.encoder),
-                     fsst_decoder(suffix_compression_result.encoder));
-
-
-
+    decompress_all(compression_result.data, fsst_decoder(prefix_compression_result.encoder),
+                         fsst_decoder(suffix_compression_result.encoder));
 
     // compression_result.run_start_offsets = {nullptr}; // Placeholder
     // total_compressed_string_size += compress(prefixLenIn, prefixStrIn, suffixLenIn, suffixStrIn, similarity_chunks, compression_result);
