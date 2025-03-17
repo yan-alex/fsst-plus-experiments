@@ -22,7 +22,7 @@ inline bool TryAddPrefix(BlockSizingMetadata &sm,
     return true;
 }
 
-inline size_t CalculateSuffixSize(const FSSTCompressionResult &suffix_compression_result,
+inline size_t CalculateSuffixPlusHeaderSize(const FSSTCompressionResult &suffix_compression_result,
                                   const std::vector<SimilarityChunk> &similarity_chunks,
                                   const size_t suffix_index) {
     const size_t suffix_encoded_length = suffix_compression_result.encoded_strings_length[suffix_index];
@@ -56,7 +56,8 @@ inline size_t CalculateBlockSizeAndPopulateWritingMetadata(const std::vector<Sim
     sm.block_size += sizeof(uint8_t);
 
     // Try to fit as many suffixes as possible, up to 128
-    while (wm.suffix_n_in_block < config::block_granularity) {
+    size_t strings_to_go = suffix_compression_result.encoded_strings.size() - suffix_area_start_index;
+    while (wm.suffix_n_in_block < std::min(strings_to_go, config::block_granularity)) {
         const size_t suffix_index = suffix_area_start_index + wm.suffix_n_in_block; // starts at 0
         const size_t prefix_index_for_suffix =
             find_similarity_chunk_corresponding_to_index(suffix_index, similarity_chunks);
@@ -69,7 +70,7 @@ inline size_t CalculateBlockSizeAndPopulateWritingMetadata(const std::vector<Sim
         }
 
         // Calculate suffix size
-        size_t suffix_size = CalculateSuffixSize(
+        size_t suffix_size = CalculateSuffixPlusHeaderSize(
             suffix_compression_result, similarity_chunks, suffix_index
         );
         // Check capacity
@@ -77,9 +78,9 @@ inline size_t CalculateBlockSizeAndPopulateWritingMetadata(const std::vector<Sim
             break;
         }
 
-        // We can fit the suffix plus its header offset
-        constexpr size_t suffix_block_header_size = sizeof(uint16_t);
-        sm.block_size += suffix_block_header_size + suffix_size;
+        // We can fit the suffix plus its offset in the block header
+        constexpr size_t block_header_suffix_offset_size = sizeof(uint16_t);
+        sm.block_size += suffix_size + block_header_suffix_offset_size;
 
         // Update suffix metadata
         wm.suffix_offsets_from_first_suffix[wm.suffix_n_in_block] = sm.suffix_offset_current;
@@ -92,8 +93,8 @@ inline size_t CalculateBlockSizeAndPopulateWritingMetadata(const std::vector<Sim
 
     std::cout << "\n 🟪 BLOCK SIZING RESULTS: N Strings: " << wm.suffix_n_in_block
               << " N Prefixes: " << wm.prefix_n_in_block
-              << " Block size: " << sm.block_size
-              << " Pre size: " << wm.prefix_area_size << " 🟪 \n";
+              << " sm.block_size: " << sm.block_size
+              << " wm.prefix_area_size: " << wm.prefix_area_size << " 🟪 \n";
 
     return sm.block_size;
 }

@@ -12,7 +12,7 @@
 #include "block_decompressor.h"
 
 namespace config {
-    constexpr size_t total_strings = 128; // # of input strings
+    constexpr size_t total_strings = 130; // # of input strings
     constexpr size_t block_byte_capacity = UINT16_MAX; // ~64KB capacity
     constexpr bool print_sorted_corpus = false;
     constexpr bool print_split_points = true; // prints compressed corpus displaying split points

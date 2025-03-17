@@ -178,10 +178,12 @@ inline FSSTCompressionResult FSSTCompress(const std::vector<size_t> &lenIn, std:
     std::vector<unsigned char *> strOut(lenIn.size());
 
     // Calculate worst-case output size (2 * input)
-    size_t max_out_size = 0;
-    for (auto len: lenIn)
-        max_out_size += 2 * len;
 
+    // size_t max_out_size = 7; // TODO: SHOULD BE 0 but that gives errors when running w 5 strings for some reason
+    // for (auto len: lenIn)
+    //     max_out_size += 2 * len;
+
+    size_t max_out_size = 120000*1000;
     // Allocate output buffer
     unsigned char *output = static_cast<unsigned char *>(malloc(max_out_size));
 

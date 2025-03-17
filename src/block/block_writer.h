@@ -8,6 +8,8 @@ inline void WriteBlockHeader(const BlockWritingMetadata &wm, uint8_t *&current_d
     // A 1) Write the number of strings as an uint_8
     Store<uint8_t>(wm.suffix_n_in_block, current_data_ptr);
     current_data_ptr += sizeof(uint8_t);
+    std::cout << "Write BlockHeader num_strings: " << wm.suffix_n_in_block << "\n";
+
     // A 2) Write the suffix_data_area_offsets[]
     for (size_t i = 0; i < wm.suffix_n_in_block; i++) {
         const uint16_t offset_array_size_to_go = (wm.suffix_n_in_block - i) * sizeof(uint16_t);
