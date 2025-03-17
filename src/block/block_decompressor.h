@@ -2,14 +2,17 @@
 #include <ranges>
 #include "duckdb.hpp"
 #include <iostream>
+#include <sys/stat.h>
+
 #include "basic_fsst.h"
 
 inline void decompress_block(const uint8_t *block_start, const fsst_decoder_t &prefix_decoder,
                       const fsst_decoder_t &suffix_decoder, const uint8_t *block_stop) {
-    const auto n_strings = Load<uint8_t>(block_start);
+    const size_t n_strings = Load<uint8_t>(block_start);
+    std::cout << "Read BlockHeader num_strings: " << n_strings << "\n";
     const uint8_t *string_offsets_ptr = block_start + sizeof(uint8_t);
 
-    constexpr auto BUFFER_SIZE = 100000;
+    constexpr size_t BUFFER_SIZE = 100000;
     auto *result = new unsigned char[BUFFER_SIZE];
 
     for (int i = 0; i < n_strings; i ++ ) {
@@ -27,9 +30,8 @@ inline void decompress_block(const uint8_t *block_start, const fsst_decoder_t &p
             suffix_data_area_length = next_suffix_offset + sizeof(uint16_t) - suffix_offset;
         } else {
             // last suffix, have to refer to block_stop to calc its length
-             suffix_data_area_length = block_stop - suffix_data_area_start + sizeof(uint32_t); //TODO: Why + sizeof(uint32_t) needed here?
+             suffix_data_area_length = block_stop - suffix_data_area_start;
         }
-
 
         if (prefix_length == 0) {
             const uint8_t *encoded_suffix_ptr = suffix_data_area_start + sizeof(uint8_t);

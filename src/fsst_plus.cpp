@@ -21,7 +21,8 @@ namespace config {
 
 uint8_t *find_block_start(uint8_t *block_start_offsets, const int i) {
     uint8_t *offset_ptr = block_start_offsets + (i * sizeof(uint32_t));
-    const uint16_t offset = Load<uint32_t>(offset_ptr);
+    const uint32_t offset = Load<uint32_t>(offset_ptr);
+    std::cout << "read block_start_offset: " << offset << "\n";
     uint8_t *block_start =  offset_ptr + offset;
     return block_start;
 }
@@ -38,7 +39,7 @@ void decompress_all(uint8_t *global_header, const fsst_decoder_t &prefix_decoder
          * as we save an "extra" data_end_offset, pointing to where the last block stops. This is needed to
          * calculate the length
          */
-        uint8_t *block_stop = find_block_start(block_start_offsets, i + 1);
+        uint8_t *block_stop = find_block_start(block_start_offsets, i + 1); // TODO: Not right for last value
 
         decompress_block(block_start, prefix_decoder, suffix_decoder, block_stop);
     }
@@ -131,8 +132,6 @@ int main() {
     compression_result.data = new uint8_t[CalcMaxFSSTPlusDataSize(prefix_compression_result,
                                                                       suffix_compression_result)];
 
-    size_t prefix_area_start_index = 0; // start index for this block into all prefixes (stored in prefix_compression_result)
-    size_t suffix_area_start_index = 0; // start index for this block into all suffixes (stored in suffix_compression_result)
 
 
     // First write Global Header
@@ -147,20 +146,21 @@ int main() {
     std::vector<BlockWritingMetadata> wms;
     std::vector<size_t> prefix_sum_block_sizes;
 
-    while (suffix_area_start_index < n) {
-        // Pick up where last left off
-        BlockWritingMetadata wm = wms.size() == 0 ? BlockWritingMetadata{} : wms[wms.size() - 1];
-        wm.suffix_n_in_block = 0; // reset suffix counter
-        wm.prefix_n_in_block = 0; // reset prefix counter
+    size_t prefix_area_start_index = 0; // start index for this block into all prefixes (stored in prefix_compression_result)
+    size_t suffix_area_start_index = 0; // start index for this block into all suffixes (stored in suffix_compression_result)
 
-        // BlockWritingMetadata wm = BlockWritingMetadata{};
+    while (suffix_area_start_index < n) {
+        // Create fresh metadata for each block
+        BlockWritingMetadata wm;  // Instead of reusing previous metadata
+        wm.prefix_area_start_index = prefix_area_start_index;
+        wm.suffix_area_start_index = suffix_area_start_index;
 
         size_t block_size = CalculateBlockSizeAndPopulateWritingMetadata(
             similarity_chunks, prefix_compression_result, suffix_compression_result, wm,
             suffix_area_start_index);
-        size_t prefix_summed = prefix_sum_block_sizes.size() == 0
+        size_t prefix_summed = prefix_sum_block_sizes.empty()
                                         ? block_size
-                                        : prefix_sum_block_sizes[prefix_sum_block_sizes.size()] + block_size;
+                                        : prefix_sum_block_sizes.back() + block_size;
         prefix_sum_block_sizes.push_back(prefix_summed);
         wms.push_back(wm);
 
@@ -179,7 +179,7 @@ int main() {
 
     // B) write block_start_offsets[]
     for (size_t i = 0; i < n_blocks; i++) {
-        size_t offsets_to_go = (n_blocks - i);
+        size_t offsets_to_go = (n_blocks - i); // count itself, so that the "base" begins at the offset's end
         size_t global_header_size_ahead =
                 offsets_to_go * sizeof(uint32_t)
                 + sizeof(uint32_t); // data_end_offset size
@@ -187,11 +187,16 @@ int main() {
 
         Store<uint32_t>(global_header_size_ahead + total_block_size_ahead, global_header_ptr);
         global_header_ptr +=sizeof(uint32_t);
+        std::cout<<"wrote block_start_offset " << i << ": " << global_header_size_ahead + total_block_size_ahead<<"\n";
     }
 
     // C) write data_end_offset
-    Store<uint32_t>(prefix_sum_block_sizes.back(),global_header_ptr);
+
+    // size_t data_end_offset =
+    Store<uint32_t>(prefix_sum_block_sizes.back() + sizeof(uint32_t) // count itself, so that the "base" begins at the offset's end
+,global_header_ptr);
     global_header_ptr +=sizeof(uint32_t);
+    std::cout<<"wrote data_end_offset" << ": " << prefix_sum_block_sizes.back() + sizeof(uint32_t)<<"\n";
 
     uint8_t* next_block_start_ptr = global_header_ptr;
     for (BlockWritingMetadata wm: wms) {
