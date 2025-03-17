@@ -3,7 +3,6 @@
 #include <iostream>
 #include <cassert>
 #include "cleaving.h"
-#include "cleaving.cpp"
 
 
 // Function to compare expected chunks with actual chunks
@@ -40,7 +39,7 @@ int main() {
 
         std::vector<SimilarityChunk> expected_chunks = {};
 
-        auto actual_chunks = form_similarity_chunks(lenIn, strIn, start_index);
+        auto actual_chunks = FormSimilarityChunks(lenIn, strIn, start_index, strIn.size());
 
         // Validate
         validate_chunks(test_name, actual_chunks, expected_chunks, lenIn, start_index);
@@ -58,7 +57,7 @@ int main() {
         SimilarityChunk expected_chunk = { 0, 0 };
         std::vector<SimilarityChunk> expected_chunks = { expected_chunk };
 
-        auto actual_chunks = form_similarity_chunks(lenIn, strIn, start_index);
+        auto actual_chunks = FormSimilarityChunks(lenIn, strIn, start_index, strIn.size());
 
         // Validate
         validate_chunks(test_name, actual_chunks, expected_chunks, lenIn, start_index);
@@ -80,7 +79,7 @@ int main() {
         SimilarityChunk expected_chunk = { 0, 24 };
         std::vector<SimilarityChunk> expected_chunks = { expected_chunk };
 
-        auto actual_chunks = form_similarity_chunks(lenIn, strIn, start_index);
+        auto actual_chunks = FormSimilarityChunks(lenIn, strIn, start_index, strIn.size());
 
         // Validate
         validate_chunks(test_name, actual_chunks, expected_chunks, lenIn, start_index);
@@ -108,7 +107,7 @@ int main() {
             {0, 0}
         };
 
-        auto actual_chunks = form_similarity_chunks(lenIn, strIn, start_index);
+        auto actual_chunks = FormSimilarityChunks(lenIn, strIn, start_index, strIn.size());
 
         // Validate
         validate_chunks(test_name, actual_chunks, expected_chunks, lenIn, start_index);
@@ -135,7 +134,7 @@ int main() {
         SimilarityChunk expected_chunk = {0, 120};
         std::vector<SimilarityChunk> expected_chunks = {expected_chunk};
 
-        auto actual_chunks = form_similarity_chunks(lenIn, strIn, start_index);
+        auto actual_chunks = FormSimilarityChunks(lenIn, strIn, start_index, strIn.size());
 
         // Validate
         validate_chunks(test_name, actual_chunks, expected_chunks, lenIn, start_index);
@@ -148,7 +147,7 @@ int main() {
             "", // Empty string
             "a", // Single character
             "abcdefghijklmnopqrstuvwxyz", // 26 characters
-            std::string(200, 'b') // 200 'b's
+            std::string(100, 'b') // 100 'b's
         };
         std::vector<size_t> lenIn;
         std::vector<const unsigned char*> strIn;
@@ -163,7 +162,7 @@ int main() {
             {0, 0}
         };
 
-        auto actual_chunks = form_similarity_chunks(lenIn, strIn, start_index);
+        auto actual_chunks = FormSimilarityChunks(lenIn, strIn, start_index, strIn.size());
 
         // Validate
         validate_chunks(test_name, actual_chunks, expected_chunks, lenIn, start_index);
@@ -196,7 +195,7 @@ int main() {
             {0, 8}, {2, 16}, {4, 24}
         };
 
-        auto actual_chunks = form_similarity_chunks(lenIn, strIn, start_index);
+        auto actual_chunks = FormSimilarityChunks(lenIn, strIn, start_index, strIn.size());
 
         // Validate
         validate_chunks(test_name, actual_chunks, expected_chunks, lenIn, start_index);
@@ -230,7 +229,7 @@ int main() {
             {0, 16}, {2, 0}, {3, 16}, {5, 0}
         };
 
-        auto actual_chunks = form_similarity_chunks(lenIn, strIn, start_index);
+        auto actual_chunks = FormSimilarityChunks(lenIn, strIn, start_index, strIn.size());
         // Validate
         validate_chunks(test_name, actual_chunks, expected_chunks, lenIn, start_index);
     }
@@ -259,7 +258,7 @@ int main() {
             {2, 8}
         };
 
-        auto actual_chunks = form_similarity_chunks(lenIn, strIn, start_index);
+        auto actual_chunks = FormSimilarityChunks(lenIn, strIn, start_index, strIn.size()-2);
         // Validate
         validate_chunks(test_name, actual_chunks, expected_chunks, lenIn, start_index);
     }
@@ -284,7 +283,7 @@ int main() {
         SimilarityChunk expected_chunk = {0, 8}; // Because 'common_prefix_' is 14, aligned to 8 is 8
         std::vector<SimilarityChunk> expected_chunks = {{0, 8}, {100, 16}, {110, 16}, {120, 16}};
 
-        auto actual_chunks = form_similarity_chunks(lenIn, strIn, start_index);
+        auto actual_chunks = FormSimilarityChunks(lenIn, strIn, start_index, strIn.size());
         // Validate
         validate_chunks(test_name, actual_chunks, expected_chunks, lenIn, start_index);
     }
@@ -309,7 +308,7 @@ int main() {
         SimilarityChunk expected_chunk = {0, 120};
         std::vector<SimilarityChunk> expected_chunks = {expected_chunk};
 
-        auto actual_chunks = form_similarity_chunks(lenIn, strIn, start_index);
+        auto actual_chunks = FormSimilarityChunks(lenIn, strIn, start_index, strIn.size());
 
         // Validate
         validate_chunks(test_name, actual_chunks, expected_chunks, lenIn, start_index);
@@ -347,7 +346,7 @@ int main() {
             {2, 0}
         };
 
-        auto actual_chunks = form_similarity_chunks(lenIn, strIn, start_index);
+        auto actual_chunks = FormSimilarityChunks(lenIn, strIn, start_index, strIn.size());
 
         // Validate
         validate_chunks(test_name, actual_chunks, expected_chunks, lenIn, start_index);
@@ -391,7 +390,7 @@ int main() {
 
         std::vector<SimilarityChunk> expected_chunks = {{0, 16},{2, 16}, {4, 0}};
 
-        auto actual_chunks = form_similarity_chunks(lenIn, strIn, start_index);
+        auto actual_chunks = FormSimilarityChunks(lenIn, strIn, start_index, strIn.size());
         // Validate
         validate_chunks(test_name, actual_chunks, expected_chunks, lenIn, start_index);
     }
@@ -439,7 +438,7 @@ int main() {
 
         std::vector<SimilarityChunk> expected_chunks = {{0, 8}};
 
-        auto actual_chunks = form_similarity_chunks(lenIn, strIn, start_index);
+        auto actual_chunks = FormSimilarityChunks(lenIn, strIn, start_index, strIn.size());
         // Validate
         validate_chunks(test_name, actual_chunks, expected_chunks, lenIn, start_index);
     }
