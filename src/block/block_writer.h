@@ -12,7 +12,7 @@ inline void WriteBlockHeader(const BlockWritingMetadata &wm, uint8_t *&current_d
 
     // A 2) Write the suffix_data_area_offsets[]
     for (size_t i = 0; i < wm.suffix_n_in_block; i++) {
-        const uint16_t offset_array_size_to_go = (wm.suffix_n_in_block - i) * sizeof(uint16_t);
+        const uint16_t offset_array_size_to_go = (wm.suffix_n_in_block - i) * sizeof(uint16_t) - sizeof(uint16_t); // Count itself with - sizeof(uint16_t). So the offsetting starts at the value's end.
         uint16_t suffix_data_area_offset = wm.prefix_area_size + offset_array_size_to_go + wm.suffix_offsets_from_first_suffix[i];
         Store<uint16_t>(suffix_data_area_offset, current_data_ptr);
         current_data_ptr += sizeof(uint16_t);
