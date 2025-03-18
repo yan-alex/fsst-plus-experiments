@@ -12,7 +12,7 @@
 #include "block_decompressor.h"
 
 namespace config {
-    constexpr size_t total_strings = 130; // # of input strings
+    constexpr size_t total_strings = 300; // # of input strings
     constexpr size_t block_byte_capacity = UINT16_MAX; // ~64KB capacity
     constexpr bool print_sorted_corpus = false;
     constexpr bool print_split_points = true; // prints compressed corpus displaying split points
@@ -28,20 +28,23 @@ uint8_t *find_block_start(uint8_t *block_start_offsets, const int i) {
 }
 
 void decompress_all(uint8_t *global_header, const fsst_decoder_t &prefix_decoder,
-                    const fsst_decoder_t &suffix_decoder) {
+const fsst_decoder_t &suffix_decoder,
+std::vector<size_t> lenIn,
+std::vector<const unsigned char *> strIn) {
     uint16_t num_blocks = Load<uint16_t>(global_header);
     uint8_t *block_start_offsets = global_header + sizeof(uint16_t);
     for (int i = 0; i < num_blocks; ++i) {
         std::cout << " ------- Block " << i << "\n";
-        uint8_t *block_start = find_block_start(block_start_offsets, i);
+        const uint8_t *block_start = find_block_start(block_start_offsets, i);
         /*
          * Block stop is next block's start. Note that this also works for the last block, so no over-read,
          * as we save an "extra" data_end_offset, pointing to where the last block stops. This is needed to
          * calculate the length
          */
-        uint8_t *block_stop = find_block_start(block_start_offsets, i + 1); // TODO: Not right for last value
+        const uint8_t *block_stop = find_block_start(block_start_offsets, i + 1); // TODO: Not right for last value
 
-        decompress_block(block_start, prefix_decoder, suffix_decoder, block_stop);
+        decompress_block(block_start, prefix_decoder, suffix_decoder, block_stop, lenIn, strIn);
+
     }
 }
 
@@ -206,7 +209,7 @@ int main() {
 
     // decompress to check all went well
     decompress_all(compression_result.data, fsst_decoder(prefix_compression_result.encoder),
-                         fsst_decoder(suffix_compression_result.encoder));
+                         fsst_decoder(suffix_compression_result.encoder), lenIn, strIn);
 
     // compression_result.run_start_offsets = {nullptr}; // Placeholder
     // total_compressed_string_size += compress(prefixLenIn, prefixStrIn, suffixLenIn, suffixStrIn, similarity_chunks, compression_result);

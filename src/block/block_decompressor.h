@@ -2,18 +2,28 @@
 #include <ranges>
 #include "duckdb.hpp"
 #include <iostream>
-#include <sys/stat.h>
-
 #include "basic_fsst.h"
+#include "../config.h"
 
+inline bool TextMatches(const unsigned char *result, const unsigned char *original, const size_t size) {
+    for (int i = 0; i < size; ++i) {
+        if (result[i] != original[i]) {
+            std::cout<<"MISMATCH: "<<"result[i]: "<<result[i] << "original[i]: "<< original[i];
+            return false;
+        }
+    }
+    return true;
+}
 inline void decompress_block(const uint8_t *block_start, const fsst_decoder_t &prefix_decoder,
-                      const fsst_decoder_t &suffix_decoder, const uint8_t *block_stop) {
+const fsst_decoder_t &suffix_decoder, const uint8_t *block_stop,
+std::vector<size_t> lenIn,
+std::vector<const unsigned char *> strIn) {
     const size_t n_strings = Load<uint8_t>(block_start);
     std::cout << "Read BlockHeader num_strings: " << n_strings << "\n";
     const uint8_t *suffix_data_area_offsets_ptr = block_start + sizeof(uint8_t);
 
-    constexpr size_t BUFFER_SIZE = 1000000;
-    auto *result = new unsigned char[BUFFER_SIZE];
+    constexpr size_t BUFFER_SIZE = 100000;
+    unsigned char *result = new unsigned char[BUFFER_SIZE];
 
     for (int i = 0; i < n_strings; i ++ ) {
         const uint8_t *suffix_data_area_offset_ptr = suffix_data_area_offsets_ptr + i * sizeof(uint16_t);
@@ -58,21 +68,28 @@ inline void decompress_block(const uint8_t *block_start, const fsst_decoder_t &p
             const size_t decompressed_prefix_size = fsst_decompress(&prefix_decoder, prefix_length,
                                                                     encoded_prefix_ptr,
                                                                     BUFFER_SIZE, result);
-            std::cout << i << " decompressed: ";
-            for (int j = 0; j < decompressed_prefix_size; j++) {
-                std::cout << result[j];
-            }
+
 
             // Step 2) Decompress suffix
             const size_t decompressed_suffix_size = fsst_decompress(&suffix_decoder,
                                                                     suffix_data_area_length - sizeof(uint8_t) -
                                                                     sizeof(uint16_t),
                                                                     encoded_suffix_ptr,
-                                                                    BUFFER_SIZE, result);
-            for (int j = 0; j < decompressed_suffix_size; j++) {
-                std::cout << result[j];
+                                                                    BUFFER_SIZE, result + decompressed_prefix_size);
+            std::cout << i << " decompressed: ";
+            std::cout << result;
+
+            // Test if it's correct!
+            size_t decompressed_size = decompressed_suffix_size + decompressed_prefix_size;
+            if (decompressed_size != lenIn[config::global_index] || !TextMatches(result, strIn[config::global_index], decompressed_suffix_size + decompressed_prefix_size)) {
+                std::cerr << "‼️ ERROR: Decompression mismatch:\n"<<"result:   " << result << "\noriginal: " << strIn[config::global_index] << "\n";
             }
+
+            // for (int j = 0; j < decompressed_prefix_size + decompressed_suffix_size; j++) {
+            //     std::cout << result[j];
+            // }
             std::cout << "\n";
         }
+        config::global_index += 1;
     }
 }
