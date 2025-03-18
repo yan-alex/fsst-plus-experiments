@@ -63,7 +63,6 @@ inline void VerifyDecompressionCorrectness(const std::vector<std::string> &origi
 inline void ExtractStringsFromResultChunk(const duckdb::unique_ptr<duckdb::DataChunk> &data_chunk,
                                               std::vector<std::string> &original_strings, std::vector<size_t> &lenIn,
                                               std::vector<const unsigned char *> &strIn) {
-    std::cout << " Compression run coverage: 0:" << data_chunk->size() - 1;
 
     auto &vector = data_chunk->data[0];
     auto vector_data = duckdb::FlatVector::GetData<duckdb::string_t>(vector);
@@ -96,7 +95,8 @@ inline void RunBasicFSST(duckdb::Connection &con, const std::string &query) {
             "===============================================\n";
     while (data_chunk) {
         const size_t n = data_chunk->size();
-        std::cout << "🔷 " << n << " strings in DataChunk 🔷\n";
+
+        // std::cout << "🔷 " << n << " strings in DataChunk 🔷\n";
 
         std::vector<std::string> original_strings;
         original_strings.reserve(n);
@@ -122,8 +122,6 @@ inline void RunBasicFSST(duckdb::Connection &con, const std::string &query) {
 
         // Allocate output buffer
         unsigned char *output = static_cast<unsigned char *>(malloc(max_out_size));
-
-        std::cout << "\n";
 
         /* =============================================
          * ================ COMPRESSION ================

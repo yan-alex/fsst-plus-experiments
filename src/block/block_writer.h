@@ -39,7 +39,7 @@ inline void WriteSuffixArea(const FSSTCompressionResult &suffix_compression_resu
         // Add bounds check
         if (suffix_index >= suffix_compression_result.encoded_strings.size()) {
             std::cerr << "⚠️ Invalid suffix index: " << suffix_index << "\n";
-            break;
+            throw std::logic_error("Invalid suffix index. Terminating.");
         }
         
         uint8_t prefix_index_for_suffix = wm.suffix_prefix_index[i];

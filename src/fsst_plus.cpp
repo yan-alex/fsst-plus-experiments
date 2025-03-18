@@ -12,10 +12,10 @@
 #include "block_decompressor.h"
 
 namespace config {
-    constexpr size_t total_strings = 300; // # of input strings
+    constexpr size_t total_strings = 100000; // # of input strings
     constexpr size_t block_byte_capacity = UINT16_MAX; // ~64KB capacity
     constexpr bool print_sorted_corpus = false;
-    constexpr bool print_split_points = true; // prints compressed corpus displaying split points
+    constexpr bool print_split_points = false; // prints compressed corpus displaying split points
     constexpr bool print_decompressed_corpus = false;
 }
 
@@ -52,8 +52,9 @@ int main() {
     Connection con(db);
 
     const string query =
-            "SELECT Url FROM read_parquet('/Users/yanlannaalexandre/_DA_REPOS/fsst-plus-experiments/example_data/clickbenchurl.parquet') LIMIT "
-            + std::to_string(config::total_strings) + ";";
+            "SELECT Url FROM read_parquet('/Users/yanlannaalexandre/_DA_REPOS/fsst-plus-experiments/data/refined/clickbenchurl.parquet')"
+            "LIMIT " + std::to_string(config::total_strings) +
+             ";";
 
     // ======= RUN BASIC FSST TO COMPARE =======
     RunBasicFSST(con, query);
@@ -64,7 +65,6 @@ int main() {
 
     size_t total_strings_amount = {0};
     size_t total_string_size = {0};
-    size_t total_compressed_string_size = {0};
 
     std::cout <<
             "===============================================\n" <<
@@ -95,10 +95,10 @@ int main() {
     similarity_chunks.reserve(n);
 
     std::cout << "🔷 " << n << " strings for this symbol table 🔷 \n";
-    while (data_chunk) {
-        const size_t data_chunk_size = data_chunk->size();
 
-        std::cout << "> " << data_chunk_size << " strings in DataChunk\n";
+    while (data_chunk) {
+        // std::cout << "> New DuckDB DataChunk: \n";
+        // std::cout << " Compression run coverage: 0:" << data_chunk->size() - 1;
 
         // Populate lenIn and strIn
         ExtractStringsFromDataChunk(data_chunk, original_strings, lenIn, strIn);

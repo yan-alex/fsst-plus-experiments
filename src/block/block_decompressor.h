@@ -25,7 +25,7 @@ std::vector<const unsigned char *> strIn) {
     const size_t n_strings = Load<uint8_t>(block_start);
     const uint8_t *suffix_data_area_offsets_ptr = block_start + sizeof(uint8_t);
 
-    constexpr size_t BUFFER_SIZE = 100000;
+    constexpr size_t BUFFER_SIZE = 1000000;
     unsigned char *result = new unsigned char[BUFFER_SIZE];
 
     for (int i = 0; i < n_strings; i ++ ) {
