@@ -54,9 +54,9 @@ inline void WriteSuffixArea(const FSSTCompressionResult &suffix_compression_resu
         // if there is a prefix, calculate offset and store it
         if (suffix_has_prefix) {
             size_t prefix_offset_from_first_prefix = wm.prefix_offsets_from_first_prefix[prefix_index_for_suffix];
-            size_t suffix_offset_from_first_suffix = wm.suffix_offsets_from_first_suffix[suffix_index]; // should it index by suffix_index or by i?
+            size_t suffix_offset_from_first_suffix = wm.suffix_offsets_from_first_suffix[i]; // should it index by suffix_index or by i?
             uint16_t prefix_jumpback_offset = (wm.prefix_area_size - prefix_offset_from_first_prefix) +
-                                              suffix_offset_from_first_suffix;
+                                              suffix_offset_from_first_suffix; // TODO: Is too big on the second block.
 
             Store<uint16_t>(prefix_jumpback_offset, current_data_ptr);
             current_data_ptr += sizeof(uint16_t);
@@ -89,6 +89,6 @@ inline uint8_t * WriteBlock(uint8_t *block_start,
 
 
     std::cout << "current_data_ptr after writing block " << static_cast<const void*>(current_data_ptr) << "\n";
-    std::cout << "difference: " << (current_data_ptr - block_start) << "\n";
+    std::cout << "difference: " << (current_data_ptr - block_start) << "\n\n";
     return current_data_ptr;
 }

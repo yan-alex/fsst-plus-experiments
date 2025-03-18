@@ -25,10 +25,10 @@ inline void decompress_block(const uint8_t *block_start, const fsst_decoder_t &p
 
         uint16_t suffix_data_area_length;
         if (i < n_strings-1) {
-            // Add +sizeof(uint16_t) because next offset starts from itself
+            // By adding +sizeof(uint16_t) we get the next suffix_data_area_offset
             const uint16_t next_suffix_offset = Load<uint16_t>(suffix_data_area_offset_ptr + sizeof(uint16_t)); // next suffix offset
             // diff between this offset and next suffix offset
-            suffix_data_area_length = next_suffix_offset + sizeof(uint16_t) - suffix_data_area_offset;
+            suffix_data_area_length = next_suffix_offset + sizeof(uint16_t) - suffix_data_area_offset; //TODO: Why + sizeof(uint16_t)? Try without
         } else {
             // last suffix, have to refer to block_stop to calc its length
              suffix_data_area_length = block_stop - suffix_data_area_start;
@@ -47,12 +47,12 @@ inline void decompress_block(const uint8_t *block_start, const fsst_decoder_t &p
             std::cout << "\n";
         } else {
             const uint8_t *jumpback_offset_ptr = suffix_data_area_start + sizeof(uint8_t);
-            const uint16_t jumpback_offset = Load<uint16_t>(jumpback_offset_ptr);
+            const uint16_t jumpback_offset = Load<uint16_t>(jumpback_offset_ptr); //TODO: NOT RIGHT!
 
             const uint8_t *encoded_suffix_ptr = jumpback_offset_ptr + sizeof(uint16_t);
 
             const uint8_t *encoded_prefix_ptr =
-                    encoded_suffix_ptr - jumpback_offset - sizeof(uint8_t) - sizeof(uint16_t);
+                    encoded_suffix_ptr - jumpback_offset - sizeof(uint8_t) - sizeof(uint16_t); //TODO: NOT RIGHT!
 
             // Step 1) Decompress prefix
             const size_t decompressed_prefix_size = fsst_decompress(&prefix_decoder, prefix_length,
