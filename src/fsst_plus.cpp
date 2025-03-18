@@ -16,13 +16,13 @@ namespace config {
     constexpr size_t block_byte_capacity = UINT16_MAX; // ~64KB capacity
     constexpr bool print_sorted_corpus = false;
     constexpr bool print_split_points = true; // prints compressed corpus displaying split points
+    constexpr bool print_decompressed_corpus = false;
 }
 
 
 uint8_t *find_block_start(uint8_t *block_start_offsets, const int i) {
     uint8_t *offset_ptr = block_start_offsets + (i * sizeof(uint32_t));
     const uint32_t offset = Load<uint32_t>(offset_ptr);
-    std::cout << "read block_start_offset: " << offset << "\n";
     uint8_t *block_start =  offset_ptr + offset;
     return block_start;
 }
@@ -34,14 +34,13 @@ std::vector<const unsigned char *> strIn) {
     uint16_t num_blocks = Load<uint16_t>(global_header);
     uint8_t *block_start_offsets = global_header + sizeof(uint16_t);
     for (int i = 0; i < num_blocks; ++i) {
-        std::cout << " ------- Block " << i << "\n";
         const uint8_t *block_start = find_block_start(block_start_offsets, i);
         /*
          * Block stop is next block's start. Note that this also works for the last block, so no over-read,
          * as we save an "extra" data_end_offset, pointing to where the last block stops. This is needed to
          * calculate the length
          */
-        const uint8_t *block_stop = find_block_start(block_start_offsets, i + 1); // TODO: Not right for last value
+        const uint8_t *block_stop = find_block_start(block_start_offsets, i + 1);
 
         decompress_block(block_start, prefix_decoder, suffix_decoder, block_stop, lenIn, strIn);
 
@@ -190,16 +189,12 @@ int main() {
 
         Store<uint32_t>(global_header_size_ahead + total_block_size_ahead, global_header_ptr);
         global_header_ptr +=sizeof(uint32_t);
-        std::cout<<"wrote block_start_offset " << i << ": " << global_header_size_ahead + total_block_size_ahead<<"\n";
     }
 
     // C) write data_end_offset
-
-    // size_t data_end_offset =
     Store<uint32_t>(prefix_sum_block_sizes.back() + sizeof(uint32_t) // count itself, so that the "base" begins at the offset's end
 ,global_header_ptr);
     global_header_ptr +=sizeof(uint32_t);
-    std::cout<<"wrote data_end_offset" << ": " << prefix_sum_block_sizes.back() + sizeof(uint32_t)<<"\n";
 
     uint8_t* next_block_start_ptr = global_header_ptr;
     for (BlockWritingMetadata wm: wms) {
@@ -211,20 +206,17 @@ int main() {
     decompress_all(compression_result.data, fsst_decoder(prefix_compression_result.encoder),
                          fsst_decoder(suffix_compression_result.encoder), lenIn, strIn);
 
-    // compression_result.run_start_offsets = {nullptr}; // Placeholder
-    // total_compressed_string_size += compress(prefixLenIn, prefixStrIn, suffixLenIn, suffixStrIn, similarity_chunks, compression_result);
 
     total_strings_amount += lenIn.size();
     for (size_t string_length: lenIn) {
         total_string_size += string_length;
     }
 
-    PrintCompressionStats(total_strings_amount, total_string_size, total_compressed_string_size);
+    PrintCompressionStats(total_strings_amount, total_string_size, next_block_start_ptr - compression_result.data );
     std::cout << "TODO: Save compressed data to the database.\n\n";
-    // get the next chunk, continue loop
 
-    // // Cleanup
-    // std::cout << "Cleanup";
-    // fsst_destroy(encoder);
+    std::cout << "Cleanup";
+    fsst_destroy(prefix_compression_result.encoder);
+    fsst_destroy(suffix_compression_result.encoder);
     return 0;
 }

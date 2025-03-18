@@ -8,7 +8,6 @@ inline void WriteBlockHeader(const BlockWritingMetadata &wm, uint8_t *&current_d
     // A 1) Write the number of strings as an uint_8
     Store<uint8_t>(wm.suffix_n_in_block, current_data_ptr);
     current_data_ptr += sizeof(uint8_t);
-    std::cout << "Write BlockHeader num_strings: " << wm.suffix_n_in_block << "\n";
 
     // A 2) Write the suffix_data_area_offsets[]
     for (size_t i = 0; i < wm.suffix_n_in_block; i++) {
@@ -56,7 +55,7 @@ inline void WriteSuffixArea(const FSSTCompressionResult &suffix_compression_resu
             size_t prefix_offset_from_first_prefix = wm.prefix_offsets_from_first_prefix[prefix_index_for_suffix];
             size_t suffix_offset_from_first_suffix = wm.suffix_offsets_from_first_suffix[i]; // should it index by suffix_index or by i?
             uint16_t prefix_jumpback_offset = (wm.prefix_area_size - prefix_offset_from_first_prefix) +
-                                              suffix_offset_from_first_suffix; // TODO: Is too big on the second block.
+                                              suffix_offset_from_first_suffix;
 
             Store<uint16_t>(prefix_jumpback_offset, current_data_ptr);
             current_data_ptr += sizeof(uint16_t);
@@ -76,19 +75,15 @@ inline uint8_t * WriteBlock(uint8_t *block_start,
                         const FSSTCompressionResult &suffix_compression_result, const BlockWritingMetadata &wm) {
 
     uint8_t *current_data_ptr = block_start;
-    std::cout << "current_data_ptr before writing block " << static_cast<const void*>(current_data_ptr) << "\n";
 
     // A) WRITE THE HEADER
     WriteBlockHeader(wm, current_data_ptr);
 
-    // B) WRITE THE PREFIX AREA // TODO: Wrong for block 2
+    // B) WRITE THE PREFIX AREA
     WritePrefixArea(prefix_compression_result, wm, wm.prefix_area_start_index, current_data_ptr);
 
     // C) WRITE SUFFIX AREA
     WriteSuffixArea(suffix_compression_result, wm, wm.suffix_area_start_index, current_data_ptr);
 
-
-    std::cout << "current_data_ptr after writing block " << static_cast<const void*>(current_data_ptr) << "\n";
-    std::cout << "difference: " << (current_data_ptr - block_start) << "\n\n";
     return current_data_ptr;
 }

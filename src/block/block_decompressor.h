@@ -18,8 +18,11 @@ inline void decompress_block(const uint8_t *block_start, const fsst_decoder_t &p
 const fsst_decoder_t &suffix_decoder, const uint8_t *block_stop,
 std::vector<size_t> lenIn,
 std::vector<const unsigned char *> strIn) {
+    if (config::print_decompressed_corpus) {
+        std::cout << " ------- Block " << config::global_index/128 << "\n";
+    }
+
     const size_t n_strings = Load<uint8_t>(block_start);
-    std::cout << "Read BlockHeader num_strings: " << n_strings << "\n";
     const uint8_t *suffix_data_area_offsets_ptr = block_start + sizeof(uint8_t);
 
     constexpr size_t BUFFER_SIZE = 100000;
@@ -38,7 +41,7 @@ std::vector<const unsigned char *> strIn) {
             // By adding +sizeof(uint16_t) we get the next suffix_data_area_offset
             const uint16_t next_suffix_offset = Load<uint16_t>(suffix_data_area_offset_ptr + sizeof(uint16_t)); // next suffix offset
             // diff between this offset and next suffix offset
-            suffix_data_area_length = next_suffix_offset + sizeof(uint16_t) - suffix_data_area_offset; //TODO: Why + sizeof(uint16_t)? Try without
+            suffix_data_area_length = next_suffix_offset + sizeof(uint16_t) - suffix_data_area_offset;
         } else {
             // last suffix, have to refer to block_stop to calc its length
              suffix_data_area_length = block_stop - suffix_data_area_start;
@@ -47,22 +50,21 @@ std::vector<const unsigned char *> strIn) {
         if (prefix_length == 0) {
             const uint8_t *encoded_suffix_ptr = suffix_data_area_start + sizeof(uint8_t);
             // suffix only
-            const size_t decompressed_suffix_size = fsst_decompress(&suffix_decoder,
-                                                                    suffix_data_area_length - sizeof(uint8_t),
-                                                                    encoded_suffix_ptr, BUFFER_SIZE, result);
-            std::cout << i << " decompressed: ";
-            for (int j = 0; j < decompressed_suffix_size; j++) {
-                std::cout << result[j];
+            fsst_decompress(&suffix_decoder,
+                            suffix_data_area_length - sizeof(uint8_t),
+                            encoded_suffix_ptr, BUFFER_SIZE, result);
+            if (config::print_decompressed_corpus) {
+                std::cout << i << " decompressed: ";
+                std::cout << result << "\n";
             }
-            std::cout << "\n";
         } else {
             const uint8_t *jumpback_offset_ptr = suffix_data_area_start + sizeof(uint8_t);
-            const uint16_t jumpback_offset = Load<uint16_t>(jumpback_offset_ptr); //TODO: NOT RIGHT!
+            const uint16_t jumpback_offset = Load<uint16_t>(jumpback_offset_ptr);
 
             const uint8_t *encoded_suffix_ptr = jumpback_offset_ptr + sizeof(uint16_t);
 
             const uint8_t *encoded_prefix_ptr =
-                    encoded_suffix_ptr - jumpback_offset - sizeof(uint8_t) - sizeof(uint16_t); //TODO: NOT RIGHT!
+                    encoded_suffix_ptr - jumpback_offset - sizeof(uint8_t) - sizeof(uint16_t);
 
             // Step 1) Decompress prefix
             const size_t decompressed_prefix_size = fsst_decompress(&prefix_decoder, prefix_length,
@@ -76,8 +78,10 @@ std::vector<const unsigned char *> strIn) {
                                                                     sizeof(uint16_t),
                                                                     encoded_suffix_ptr,
                                                                     BUFFER_SIZE, result + decompressed_prefix_size);
-            std::cout << i << " decompressed: ";
-            std::cout << result;
+            if (config::print_decompressed_corpus) {
+                std::cout << i << " decompressed: ";
+                std::cout << result << "\n";
+            }
 
             // Test if it's correct!
             size_t decompressed_size = decompressed_suffix_size + decompressed_prefix_size;
@@ -85,10 +89,7 @@ std::vector<const unsigned char *> strIn) {
                 std::cerr << "‼️ ERROR: Decompression mismatch:\n"<<"result:   " << result << "\noriginal: " << strIn[config::global_index] << "\n";
             }
 
-            // for (int j = 0; j < decompressed_prefix_size + decompressed_suffix_size; j++) {
-            //     std::cout << result[j];
-            // }
-            std::cout << "\n";
+
         }
         config::global_index += 1;
     }
