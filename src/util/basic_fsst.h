@@ -4,7 +4,6 @@
 
 #include "duckdb.hpp"
 #include <string>
-#include <__fwd/string.h>
 
 struct FSSTCompressionResult {
     fsst_encoder_t *encoder;
