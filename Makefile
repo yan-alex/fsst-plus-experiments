@@ -1,18 +1,30 @@
+# Define the build directories
+BUILD_DIR = build
+DEBUG_DIR = $(BUILD_DIR)/debug
+RELEASE_DIR = $(BUILD_DIR)/release
+TARGET = fsst-plus
 
+# Default rule: Build the project in Debug mode
+all: debug
 
-.PHONY: duckdb clean main
+# Build the project in Debug mode
+debug:
+	@mkdir -p $(DEBUG_DIR)
+	cd $(DEBUG_DIR) && cmake -DCMAKE_BUILD_TYPE=Debug ../.. && $(MAKE)
 
-all: duckdb main
+# Build the project in Release mode
+release:
+	@mkdir -p $(RELEASE_DIR)
+	cd $(RELEASE_DIR) && cmake -DCMAKE_BUILD_TYPE=Release ../.. && $(MAKE)
 
+# Clean rule: Remove all build artifacts
 clean:
-	rm -rf build
+	@rm -rf $(BUILD_DIR)
 
-duckdb:
-	cd ../.. && make
+# Run the compiled binary (Debug mode)
+run: debug
+	@./$(DEBUG_DIR)/$(TARGET)
 
-main:
-	mkdir -p build
-	cd build && cmake .. && make
-	build/example
-
-
+# Run the compiled binary (Release mode)
+run-release: release
+	@./$(RELEASE_DIR)/$(TARGET)

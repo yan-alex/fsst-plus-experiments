@@ -215,7 +215,7 @@ int main() {
     PrintCompressionStats(total_strings_amount, total_string_size, next_block_start_ptr - compression_result.data );
     std::cout << "TODO: Save compressed data to the database.\n\n";
 
-    std::cout << "Cleanup";
+    std::cout << "Cleanup\n";
     fsst_destroy(prefix_compression_result.encoder);
     fsst_destroy(suffix_compression_result.encoder);
     return 0;

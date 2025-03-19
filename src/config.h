@@ -1,6 +1,6 @@
 #pragma once
 #include <ranges>
-
+#include <cstddef>
 
 namespace config {
     extern const size_t total_strings;
