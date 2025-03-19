@@ -1,6 +1,6 @@
 [submodule "duckdb"]
 	path = third_party/duckdb
 	url = https://github.com/duckdb/duckdb.git
-[submodule "fsst"]
+[submodule "third_party/fsst"]
 	path = third_party/fsst
-	url = https://github.com/duckdb/duckdb.git
+	url = https://github.com/cwida/fsst.git
