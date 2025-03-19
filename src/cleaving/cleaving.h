@@ -5,6 +5,8 @@
 #include <ranges>
 #include "print_utils.h"
 #include "../config.h" // Not needed but prevents ClionIDE from complaining
+#include <algorithm>
+#include <limits>
 
 // Sort all strings based on their starting characters truncated to the largest multiple of 8 bytes (up to config::max_prefix_size bytes)
 inline void TruncatedSort(std::vector<size_t> &lenIn, std::vector<const unsigned char *> &strIn,
@@ -55,7 +57,7 @@ inline std::vector<SimilarityChunk> FormSimilarityChunks(
 
     // Precompute LCPs up to config::max_prefix_size characters
     for (size_t i = 0; i < cleaving_run_n - 1; ++i) {
-        const size_t max_lcp = std::min({lenIn[start_index + i], lenIn[start_index + i + 1], config::max_prefix_size});
+        const size_t max_lcp = std::min(std::min(lenIn[start_index + i], lenIn[start_index + i + 1]), config::max_prefix_size);
         size_t l = 0;
         const unsigned char *s1 = strIn[start_index + i];
         const unsigned char *s2 = strIn[start_index + i + 1];
