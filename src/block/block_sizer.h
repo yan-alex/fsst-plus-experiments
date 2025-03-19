@@ -27,7 +27,7 @@ inline size_t CalculateSuffixPlusHeaderSize(const FSSTCompressionResult &suffix_
                                   const size_t suffix_index) {
     const size_t suffix_encoded_length = suffix_compression_result.encoded_strings_length[suffix_index];
     constexpr size_t prefix_length_byte = sizeof(uint8_t);
-    const bool suffix_has_prefix = (similarity_chunks[find_similarity_chunk_corresponding_to_index(
+    const bool suffix_has_prefix = (similarity_chunks[FindSimilarityChunkCorrespondingToIndex(
                                 suffix_index, similarity_chunks
                               )].prefix_length != 0);
     const size_t jumpback_size = suffix_has_prefix ? sizeof(uint16_t) : 0;
@@ -60,7 +60,7 @@ inline size_t CalculateBlockSizeAndPopulateWritingMetadata(const std::vector<Sim
     while (wm.suffix_n_in_block < std::min(strings_to_go, config::block_granularity)) {
         const size_t suffix_index = suffix_area_start_index + wm.suffix_n_in_block; // starts at 0
         const size_t prefix_index_for_suffix =
-            find_similarity_chunk_corresponding_to_index(suffix_index, similarity_chunks);
+            FindSimilarityChunkCorrespondingToIndex(suffix_index, similarity_chunks);
 
         // If new prefix is needed, try to add it
         if (prefix_index_for_suffix != sm.prefix_last_index_added) {

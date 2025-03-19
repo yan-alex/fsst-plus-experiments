@@ -5,7 +5,7 @@
 #include "cleaving_types.h"
 #include <vector>
 
-inline size_t find_similarity_chunk_corresponding_to_index(const size_t &target_index,
+inline size_t FindSimilarityChunkCorrespondingToIndex(const size_t &target_index,
                                                            const std::vector<SimilarityChunk> &similarity_chunks) {
     // Binary search
     size_t l = 0, r = similarity_chunks.size() - 1;

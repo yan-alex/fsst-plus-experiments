@@ -14,7 +14,7 @@ inline bool TextMatches(const unsigned char *result, const unsigned char *origin
     }
     return true;
 }
-inline void decompress_block(const uint8_t *block_start, const fsst_decoder_t &prefix_decoder,
+inline void DecompressBlock(const uint8_t *block_start, const fsst_decoder_t &prefix_decoder,
 const fsst_decoder_t &suffix_decoder, const uint8_t *block_stop,
 std::vector<size_t> lenIn,
 std::vector<const unsigned char *> strIn) {

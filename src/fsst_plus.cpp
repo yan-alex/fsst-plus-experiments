@@ -42,7 +42,7 @@ std::vector<const unsigned char *> strIn) {
          */
         const uint8_t *block_stop = find_block_start(block_start_offsets, i + 1);
 
-        decompress_block(block_start, prefix_decoder, suffix_decoder, block_stop, lenIn, strIn);
+        DecompressBlock(block_start, prefix_decoder, suffix_decoder, block_stop, lenIn, strIn);
 
     }
 }

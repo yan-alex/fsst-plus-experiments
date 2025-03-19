@@ -33,32 +33,6 @@ inline size_t CalcSymbolTableSize(fsst_encoder_t *encoder) {
     return result;
 }
 
-inline void VerifyDecompressionCorrectness(const std::vector<std::string> &original_strings, const std::vector<size_t> &lenIn,
-                                             const std::vector<size_t> &lenOut, const std::vector<unsigned char *> &strOut,
-                                             const size_t num_compressed, const fsst_decoder_t &decoder) {
-    for (size_t i = 0; i < num_compressed; i++) {
-        // Allocate decompression buffer
-        auto *decompressed = static_cast<unsigned char *>(malloc(lenIn[i]));
-
-        const size_t decompressed_size = fsst_decompress(
-            &decoder, /* IN: use this symbol table for compression. */
-            lenOut[i], /* IN: byte-length of compressed string. */
-            strOut[i], /* IN: compressed string. */
-            lenIn[i], /* IN: byte-length of output buffer. */
-            decompressed /* OUT: memory buffer to put the decompressed string in. */
-        );
-        const std::string_view decompressed_view(reinterpret_cast<char *>(decompressed), decompressed_size);
-        // Verify decompression
-        if (decompressed_size != lenIn[i] ||
-            decompressed_view != original_strings[i]) {
-            std::cerr << "Decompression mismatch for string " << i << " Expected: " << original_strings[i] << " Got: "
-                    << decompressed_view << std::endl;
-            throw std::logic_error("Decompression mismatch detected. Terminating.");
-        }
-    }
-    std::cout << "\nDecompression successful\n";
-}
-
 inline void ExtractStringsFromResultChunk(const duckdb::unique_ptr<duckdb::DataChunk> &data_chunk,
                                               std::vector<std::string> &original_strings, std::vector<size_t> &lenIn,
                                               std::vector<const unsigned char *> &strIn) {
@@ -204,31 +178,6 @@ inline FSSTCompressionResult FSSTCompress(const std::vector<size_t> &lenIn, std:
     return FSSTCompressionResult{encoder, lenOut, strOut};
 }
 
-inline void VerifyDecompressionCorrectness(const std::vector<std::string> &original_strings, const std::vector<size_t> &lenIn,
-                                             const std::vector<size_t> &lenOut, const std::vector<unsigned char *> &strOut,
-                                             const size_t &num_compressed, const fsst_decoder_t &decoder) {
-    for (size_t i = 0; i < num_compressed; i++) {
-        // Allocate decompression buffer
-        auto *decompressed = static_cast<unsigned char *>(malloc(lenIn[i]));
-
-        size_t decompressed_size = fsst_decompress(
-            &decoder, /* IN: use this symbol table for compression. */
-            lenOut[i], /* IN: byte-length of compressed string. */
-            strOut[i], /* IN: compressed string. */
-            lenIn[i], /* IN: byte-length of output buffer. */
-            decompressed /* OUT: memory buffer to put the decompressed string in. */
-        );
-        const std::string_view decompressed_view(reinterpret_cast<char *>(decompressed), decompressed_size);
-        // Verify decompression
-        if (decompressed_size != lenIn[i] ||
-            decompressed_view != original_strings[i]) {
-            std::cerr << "Decompression mismatch for string " << i << " Expected: " << original_strings[i] << " Got: "
-                    << decompressed_view << std::endl;
-            throw std::logic_error("Decompression mismatch detected. Terminating.");
-        }
-    }
-    std::cout << "\nDecompression successful\n";
-}
 inline size_t CalcEncodedStringsSize(const FSSTCompressionResult &compression_result) {
     size_t result = 0;
     const size_t size = compression_result.encoded_strings_length.size();

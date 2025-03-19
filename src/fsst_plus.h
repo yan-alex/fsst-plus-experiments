@@ -1,6 +1,5 @@
 #pragma once
 #include <vector>
-#include "config.h"
 #include "basic_fsst.h"
 
 struct FSSTPlusCompressionResult {

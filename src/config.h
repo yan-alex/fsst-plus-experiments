@@ -1,5 +1,4 @@
 #pragma once
-#include <ranges>
 #include <cstddef>
 
 namespace config {

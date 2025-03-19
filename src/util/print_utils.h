@@ -38,7 +38,7 @@ inline void PrintStringWithSplitPoints(
     std::cout << "\n";
 }
 
-void PrintDecoderSymbolTable(const fsst_decoder_t &decoder) {
+inline void PrintDecoderSymbolTable(const fsst_decoder_t &decoder) {
     std::cout << "\n==============================================\n";
     std::cout << "\tSTART FSST Decoder Symbol Table:\n";
     std::cout << "==============================================\n";
