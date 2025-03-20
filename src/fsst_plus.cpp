@@ -51,8 +51,26 @@ int main() {
     DuckDB db(nullptr);
     Connection con(db);
 
+    // Create the benchchmark_results table
+    const std::string create_benchchmark_results_query =
+        "CREATE TABLE IF NOT EXISTS benchchmark_results ("
+        "id INTEGER PRIMARY KEY, "
+        "dataset VARCHAR, "
+        "column VARCHAR, "
+        "algo VARCHAR, "
+        "amount_of_rows DOUBLE, "
+        "run_time_ms DOUBLE, "
+        "compression_factor VARCHAR, "
+        ");";
+    auto benchchmark_results_create_result = con.Query(create_benchchmark_results_query);
+    if (!benchchmark_results_create_result->success) {
+        std::cerr << "Failed to create benchchmark_results table: " << benchchmark_results_create_result->error << std::endl;
+        return 1;
+    }
+
+    // Create the benchchmark_results table
     const string query =
-            "SELECT Url FROM read_parquet('/Users/yanlannaalexandre/_DA_REPOS/fsst-plus-experiments/data/refined/clickbenchurl.parquet')"
+            "SELECT Url FROM read_parquet('data/refined/clickbench.parquet')"
             "LIMIT " + std::to_string(config::total_strings) +
              ";";
 

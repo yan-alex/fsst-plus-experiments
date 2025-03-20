@@ -4,6 +4,8 @@
 #include <iostream>
 #include "basic_fsst.h"
 #include "../config.h"
+#include "../global.h"
+#include "../global_variables.h"
 
 inline bool TextMatches(const unsigned char *result, const unsigned char *original, const size_t size) {
     for (int i = 0; i < size; ++i) {
@@ -19,7 +21,7 @@ const fsst_decoder_t &suffix_decoder, const uint8_t *block_stop,
 std::vector<size_t> lenIn,
 std::vector<const unsigned char *> strIn) {
     if (config::print_decompressed_corpus) {
-        std::cout << " ------- Block " << config::global_index/128 << "\n";
+        std::cout << " ------- Block " << global::global_index/128 << "\n";
     }
 
     const size_t n_strings = Load<uint8_t>(block_start);
@@ -85,12 +87,12 @@ std::vector<const unsigned char *> strIn) {
 
             // Test if it's correct!
             size_t decompressed_size = decompressed_suffix_size + decompressed_prefix_size;
-            if (decompressed_size != lenIn[config::global_index] || !TextMatches(result, strIn[config::global_index], decompressed_suffix_size + decompressed_prefix_size)) {
-                std::cerr << "‼️ ERROR: Decompression mismatch:\n"<<"result:   " << result << "\noriginal: " << strIn[config::global_index] << "\n";
+            if (decompressed_size != lenIn[global::global_index] || !TextMatches(result, strIn[global::global_index], decompressed_suffix_size + decompressed_prefix_size)) {
+                std::cerr << "‼️ ERROR: Decompression mismatch:\n"<<"result:   " << result << "\noriginal: " << strIn[global::global_index] << "\n";
             }
 
 
         }
-        config::global_index += 1;
+        global::global_index += 1;
     }
 }
