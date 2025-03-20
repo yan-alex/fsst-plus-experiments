@@ -1,6 +1,7 @@
 #pragma once
 #include <vector>
 #include <cstddef> // for size_t
+#include <string>
 
 struct SimilarityChunk {
     size_t start_index; // Starts here and goes on until next chunk's index, or until the end of the 128 block
@@ -10,11 +11,13 @@ struct SimilarityChunk {
 // Common base struct for Prefixes and Suffixes
 struct StringCollection {
     std::vector<size_t> lengths;
-    std::vector<const unsigned char *> strings;
+    std::vector<const unsigned char *> string_ptrs;
+    std::vector<std::string> data;  // retains the actual string bytes
 
     explicit StringCollection(const size_t n) {
         lengths.reserve(n);
-        strings.reserve(n);
+        string_ptrs.reserve(n);
+        data.reserve(n);
     }
 };
 
@@ -30,6 +33,5 @@ struct CleavedResult {
     Prefixes prefixes;
     Suffixes suffixes;
     
-    CleavedResult();
-    explicit CleavedResult(const size_t n): suffixes(Suffixes(n)), prefixes(Prefixes(n)){}
+    explicit CleavedResult(const size_t n): prefixes(Prefixes(n)), suffixes(Suffixes(n)){}
 };

@@ -30,6 +30,9 @@ std::vector<const unsigned char *> &strIn) {
     unsigned char *result = new unsigned char[BUFFER_SIZE];
 
     for (int i = 0; i < n_strings; i ++ ) {
+        // Clear the result buffer to ensure no remnants from previous strings
+        memset(result, 0, BUFFER_SIZE);
+        
         const uint8_t *suffix_data_area_offset_ptr = suffix_data_area_offsets_ptr + i * sizeof(uint16_t);
         const uint16_t suffix_data_area_offset = Load<uint16_t>(suffix_data_area_offset_ptr);
 
@@ -51,12 +54,17 @@ std::vector<const unsigned char *> &strIn) {
         if (prefix_length == 0) {
             const uint8_t *encoded_suffix_ptr = suffix_data_area_start + sizeof(uint8_t);
             // suffix only
-            fsst_decompress(&suffix_decoder,
+            const size_t decompressed_suffix_size = fsst_decompress(&suffix_decoder,
                             suffix_data_area_length - sizeof(uint8_t),
                             encoded_suffix_ptr, BUFFER_SIZE, result);
             if (config::print_decompressed_corpus) {
                 std::cout << i << " decompressed: ";
                 std::cout << result << "\n";
+            }
+            
+            // Test if it's correct!
+            if (decompressed_suffix_size != lenIn[global::global_index] || !TextMatches(result, strIn[global::global_index], decompressed_suffix_size)) {
+                std::cerr << "‼️ ERROR: Decompression mismatch (suffix only):\n"<<"result:   " << result << "\noriginal: " << strIn[global::global_index] << "\n";
             }
         } else {
             const uint8_t *jumpback_offset_ptr = suffix_data_area_start + sizeof(uint8_t);
@@ -94,4 +102,7 @@ std::vector<const unsigned char *> &strIn) {
         }
         global::global_index += 1;
     }
+    
+    // Free the result buffer to avoid memory leak
+    delete[] result;
 }

@@ -18,5 +18,7 @@ inline size_t CalcMaxFSSTPlusDataSize(const FSSTCompressionResult &prefix_compre
     result += CalcEncodedStringsSize(prefix_compression_result);
     result += CalcEncodedStringsSize(suffix_compression_result);
     result += ns * 3;
+    // Add extra safety padding to avoid potential buffer overflows
+    result += (nb * 1024); // 1KB extra per blockfor safety TODO: No real reason this should be done but was failing without
     return result;
 }

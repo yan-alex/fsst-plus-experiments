@@ -142,11 +142,11 @@ inline void RunBasicFSST(duckdb::Connection &con, const std::string &query) {
 
 inline FSSTCompressionResult FSSTCompress(StringCollection &input) {
     // Create FSST encoder
-    fsst_encoder_t *encoder = CreateEncoder(input.lengths, input.strings);
+    fsst_encoder_t *encoder = CreateEncoder(input.lengths, input.string_ptrs);
 
     // Compression outputs
     std::vector<size_t> lenOut(input.lengths.size());
-    std::vector<unsigned char *> strOut(input.strings.size());
+    std::vector<unsigned char *> strOut(input.string_ptrs.size());
 
     // Calculate worst-case output size (2 * input)
 
@@ -163,7 +163,7 @@ inline FSSTCompressionResult FSSTCompress(StringCollection &input) {
         encoder, /* IN: encoder obtained from fsst_create(). */
         input.lengths.size(), /* IN: number of strings in batch to compress. */
         input.lengths.data(), /* IN: byte-lengths of the inputs */
-        input.strings.data(), /* IN: input string start pointers. */
+        input.string_ptrs.data(), /* IN: input string start pointers. */
         max_out_size, /* IN: byte-length of output buffer. */
         output, /* OUT: memory buffer to put the compressed strings in (one after the other). */
         lenOut.data(), /* OUT: byte-lengths of the compressed strings. */

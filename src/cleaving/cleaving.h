@@ -135,9 +135,9 @@ inline CleavedResult Cleave(const std::vector<size_t> &lenIn,
     auto cleaved_result = CleavedResult(n);
 
     std::vector<size_t> *pl = &cleaved_result.prefixes.lengths;
-    std::vector<const unsigned char *> *ps = &cleaved_result.prefixes.strings;
+    std::vector<const unsigned char *> *ps = &cleaved_result.prefixes.string_ptrs;
     std::vector<size_t> *sl = &cleaved_result.suffixes.lengths;
-    std::vector<const unsigned char *> *ss = &cleaved_result.suffixes.strings;
+    std::vector<const unsigned char *> *ss = &cleaved_result.suffixes.string_ptrs;
 
     for (size_t i = 0; i < similarity_chunks.size(); i++) {
         const SimilarityChunk &chunk = similarity_chunks[i];

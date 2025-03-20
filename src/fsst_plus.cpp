@@ -32,7 +32,7 @@ void decompress_all(uint8_t *global_header, const fsst_decoder_t &prefix_decoder
 const fsst_decoder_t &suffix_decoder,
 std::vector<size_t> &lenIn,
 std::vector<const unsigned char *> &strIn) {
-    global::global_index = 0;
+    global::global_index = 0; // Reset global index before decompression
     uint16_t num_blocks = Load<uint16_t>(global_header);
     uint8_t *block_start_offsets = global_header + sizeof(uint16_t);
     for (int i = 0; i < num_blocks; ++i) {
@@ -51,17 +51,22 @@ std::vector<const unsigned char *> &strIn) {
 StringCollection RetrieveData(const unique_ptr<MaterializedQueryResult> &result, unique_ptr<DataChunk> &data_chunk, const size_t &n) {
     std::cout << "🔷 " << n << " strings for this symbol table 🔷 \n";
 
-    auto input = StringCollection(n);
+    StringCollection input(n);
 
-    std::vector<std::string> original_strings;
-    original_strings.reserve(n);
-
+    // Use input.data to store actual string contents, ensuring ownership persists
     while (data_chunk) {
-        // Populate lenIn and strIn
-        ExtractStringsFromDataChunk(data_chunk, original_strings, input.lengths, input.strings);
+        // Populate input.data, input.lengths, and input.strings
+        ExtractStringsFromDataChunk(data_chunk, input.data, input.lengths, input.string_ptrs);
 
         data_chunk = result->Fetch();
     }
+
+    // Optional: Ensure that input.strings pointers point to the strings owned in input.data
+    // Uncomment if needed:
+    // input.strings.clear();
+    // for (size_t i = 0; i < input.data.size(); i++) {
+    //     input.strings.push_back(reinterpret_cast<const unsigned char*>(input.data[i].c_str()));
+    // }
 
     return input;
 }
@@ -121,10 +126,10 @@ int main() {
 
         std::cout << "Current Cleaving Run coverage: " << i << ":" << i + cleaving_run_n - 1 << std::endl;
 
-        TruncatedSort(input.lengths, input.strings, i, cleaving_run_n);
+        TruncatedSort(input.lengths, input.string_ptrs, i, cleaving_run_n);
 
         const std::vector<SimilarityChunk> cleaving_run_similarity_chunks = FormSimilarityChunks(
-            input.lengths, input.strings, i, cleaving_run_n);
+            input.lengths, input.string_ptrs, i, cleaving_run_n);
         similarity_chunks.insert(similarity_chunks.end(),
                                  cleaving_run_similarity_chunks.begin(),
                                  cleaving_run_similarity_chunks.end());
@@ -132,7 +137,7 @@ int main() {
 
 
     // Cleave based on split points
-    CleavedResult cleaved_result = Cleave(input.lengths, input.strings, similarity_chunks, n);
+    CleavedResult cleaved_result = Cleave(input.lengths, input.string_ptrs, similarity_chunks, n);
 
     FSSTPlusCompressionResult compression_result;
 
@@ -141,7 +146,7 @@ int main() {
 
     // Allocate the maximum size possible for the corpus
     compression_result.data = new uint8_t[CalcMaxFSSTPlusDataSize(prefix_compression_result,
-                                                                      suffix_compression_result)*4]; //TODO: why *4 needed? function should work without it
+                                                                     suffix_compression_result)];
 
     /*
      *  >>> WRITE GLOBAL HEADER <<<
@@ -213,7 +218,7 @@ int main() {
 
     // decompress to check all went well
     decompress_all(compression_result.data, fsst_decoder(prefix_compression_result.encoder),
-                         fsst_decoder(suffix_compression_result.encoder), input.lengths, input.strings);
+                         fsst_decoder(suffix_compression_result.encoder), input.lengths, input.string_ptrs);
 
 
     PrintCompressionStats(n, CalculateInputSize(input), next_block_start_ptr - compression_result.data );
