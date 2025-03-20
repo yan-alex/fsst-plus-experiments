@@ -5,7 +5,6 @@
 #include "basic_fsst.h"
 #include "../config.h"
 #include "../global.h"
-#include "../global_variables.h"
 
 inline bool TextMatches(const unsigned char *result, const unsigned char *original, const size_t size) {
     for (int i = 0; i < size; ++i) {

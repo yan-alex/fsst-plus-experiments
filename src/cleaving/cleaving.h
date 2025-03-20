@@ -127,14 +127,16 @@ inline std::vector<SimilarityChunk> FormSimilarityChunks(
     return chunks;
 }
 
-inline void Cleave(const std::vector<size_t> &lenIn,
-                   std::vector<const unsigned char *> &strIn,
-                   const std::vector<SimilarityChunk> &similarity_chunks,
-                   std::vector<size_t> &prefixLenIn,
-                   std::vector<const unsigned char *> &prefixStrIn,
-                   std::vector<size_t> &suffixLenIn,
-                   std::vector<const unsigned char *> &suffixStrIn
+inline CleavedResult& Cleave(const std::vector<size_t> &lenIn,
+                            std::vector<const unsigned char *> &strIn,
+                            const std::vector<SimilarityChunk> &similarity_chunks,
+                            CleavedResult &cleaved_result
 ) {
+    std::vector<size_t> *pl = &cleaved_result.prefixes.lengths;
+    std::vector<const unsigned char *> *ps = &cleaved_result.prefixes.strings;
+    std::vector<size_t> *sl = &cleaved_result.suffixes.lengths;
+    std::vector<const unsigned char *> *ss = &cleaved_result.suffixes.strings;
+
     for (size_t i = 0; i < similarity_chunks.size(); i++) {
         const SimilarityChunk &chunk = similarity_chunks[i];
         const size_t stop_index = i == similarity_chunks.size() - 1
@@ -142,24 +144,18 @@ inline void Cleave(const std::vector<size_t> &lenIn,
                                       : similarity_chunks[i + 1].start_index;
 
         // Prefix
-        prefixLenIn.push_back(chunk.prefix_length);
-        prefixStrIn.push_back(strIn[chunk.start_index]);
+        pl->push_back(chunk.prefix_length);
+        ps->push_back(strIn[chunk.start_index]);
 
         for (size_t j = chunk.start_index; j < stop_index; j++) {
             // Suffix
-            suffixLenIn.push_back(lenIn[j] - chunk.prefix_length);
-            suffixStrIn.push_back(strIn[j] + chunk.prefix_length);
+            sl->push_back(lenIn[j] - chunk.prefix_length);
+            ss->push_back(strIn[j] + chunk.prefix_length);
             if (config::print_split_points) {
-                PrintStringWithSplitPoints(strIn, suffixLenIn, suffixStrIn, chunk, j);
+                PrintStringWithSplitPoints(strIn, *sl, *ss, chunk, j);
             }
         }
     }
+
+    return cleaved_result;
 }
-
-
-struct CleavedInputs {
-    std::vector<size_t> prefixLenIn;
-    std::vector<const unsigned char *> prefixStrIn;
-    std::vector<size_t> suffixLenIn;
-    std::vector<const unsigned char *> suffixStrIn;
-};

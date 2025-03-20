@@ -10,6 +10,7 @@
 #include "block_sizer.h"
 #include "block_writer.h"
 #include "block_decompressor.h"
+#include "cleaving_types.h"
 
 namespace config {
     constexpr size_t total_strings = 100000; // # of input strings
@@ -51,26 +52,26 @@ int main() {
     DuckDB db(nullptr);
     Connection con(db);
 
-    // Create the benchchmark_results table
-    const std::string create_benchchmark_results_query =
-        "CREATE TABLE IF NOT EXISTS benchchmark_results ("
-        "id INTEGER PRIMARY KEY, "
-        "dataset VARCHAR, "
-        "column VARCHAR, "
-        "algo VARCHAR, "
-        "amount_of_rows DOUBLE, "
-        "run_time_ms DOUBLE, "
-        "compression_factor VARCHAR, "
-        ");";
-    auto benchchmark_results_create_result = con.Query(create_benchchmark_results_query);
-    if (!benchchmark_results_create_result->success) {
-        std::cerr << "Failed to create benchchmark_results table: " << benchchmark_results_create_result->error << std::endl;
-        return 1;
-    }
+    // // Create the benchchmark_results table
+    // const std::string create_benchchmark_results_query =
+    //     "CREATE TABLE IF NOT EXISTS benchchmark_results ("
+    //     "id INTEGER PRIMARY KEY, "
+    //     "dataset VARCHAR, "
+    //     "column VARCHAR, "
+    //     "algo VARCHAR, "
+    //     "amount_of_rows DOUBLE, "
+    //     "run_time_ms DOUBLE, "
+    //     "compression_factor VARCHAR, "
+    //     ");";
+    // auto benchchmark_results_create_result = con.Query(create_benchchmark_results_query);
+    // if (!benchchmark_results_create_result->success) {
+    //     std::cerr << "Failed to create benchchmark_results table: " << benchchmark_results_create_result->error << std::endl;
+    //     return 1;
+    // }
 
     // Create the benchchmark_results table
     const string query =
-            "SELECT Url FROM read_parquet('data/refined/clickbench.parquet')"
+            "SELECT Url FROM read_parquet('/Users/yanlannaalexandre/_DA_REPOS/fsst-plus-experiments/data/refined/clickbench.parquet')"
             "LIMIT " + std::to_string(config::total_strings) +
              ";";
 
@@ -89,7 +90,7 @@ int main() {
             "==========START FSST PLUS COMPRESSION==========\n" <<
             "===============================================\n";
 
-    const size_t n = std::min(config::amount_strings_per_symbol_table, config::total_strings);
+    const size_t n = std::min(config::amount_strings_per_symbol_table, static_cast<size_t>(result->RowCount()));
 
     std::vector<std::string> original_strings;
     original_strings.reserve(n);
@@ -99,15 +100,6 @@ int main() {
     std::vector<const unsigned char *> strIn;
     strIn.reserve(n);
 
-    // Cleaving results will be stored here
-    std::vector<size_t> prefixLenIn;
-    prefixLenIn.reserve(n);
-    std::vector<const unsigned char *> prefixStrIn;
-    prefixStrIn.reserve(n);
-    std::vector<size_t> suffixLenIn;
-    suffixLenIn.reserve(n);
-    std::vector<const unsigned char *> suffixStrIn;
-    suffixStrIn.reserve(n);
 
     std::vector<SimilarityChunk> similarity_chunks;
     similarity_chunks.reserve(n);
@@ -124,7 +116,7 @@ int main() {
         data_chunk = result->Fetch();
     }
 
-    // Cleaving runs
+    // Figure out the optimal split points (similarity chunks)
     for (size_t i = 0; i < n; i += config::block_granularity) {
         const size_t cleaving_run_n = std::min(lenIn.size() - i, config::block_granularity);
 
@@ -139,13 +131,17 @@ int main() {
                                  cleaving_run_similarity_chunks.end());
     }
 
-    Cleave(lenIn, strIn, similarity_chunks, prefixLenIn, prefixStrIn, suffixLenIn, suffixStrIn);
+
+    // Cleave based on split points
+    CleavedResult cleaved_result = CleavedResult(n);
+
+    Cleave(lenIn, strIn, similarity_chunks, cleaved_result);
 
     FSSTPlusCompressionResult compression_result;
 
-    FSSTCompressionResult prefix_compression_result = FSSTCompress(prefixLenIn, prefixStrIn);
+    FSSTCompressionResult prefix_compression_result = FSSTCompress(cleaved_result.prefixes);
     // size_t encoded_prefixes_byte_size = calc_encoded_strings_size(prefix_result);
-    FSSTCompressionResult suffix_compression_result = FSSTCompress(suffixLenIn, suffixStrIn);
+    FSSTCompressionResult suffix_compression_result = FSSTCompress(cleaved_result.suffixes);
     // size_t encoded_suffixes_byte_size = calc_encoded_strings_size(suffix_result);
 
     // Allocate the maximum size possible for the corpus

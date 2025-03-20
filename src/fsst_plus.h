@@ -6,9 +6,6 @@ struct FSSTPlusCompressionResult {
     uint8_t *data;
 };
 
-struct GlobalMetadata {
-
-};
 
 inline size_t CalcMaxFSSTPlusDataSize(const FSSTCompressionResult &prefix_compression_result,
                                               const FSSTCompressionResult &suffix_compression_result) {
