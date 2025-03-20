@@ -61,13 +61,6 @@ StringCollection RetrieveData(const unique_ptr<MaterializedQueryResult> &result,
         data_chunk = result->Fetch();
     }
 
-    // Optional: Ensure that input.strings pointers point to the strings owned in input.data
-    // Uncomment if needed:
-    // input.strings.clear();
-    // for (size_t i = 0; i < input.data.size(); i++) {
-    //     input.strings.push_back(reinterpret_cast<const unsigned char*>(input.data[i].c_str()));
-    // }
-
     return input;
 }
 
@@ -222,11 +215,11 @@ int main() {
 
     StringCollection input = RetrieveData(result, data_chunk, n);
 
-    std::vector<SimilarityChunk> similarity_chunks = FormSimilarityChunks(n, input);
+    const std::vector<SimilarityChunk> similarity_chunks = FormSimilarityChunks(n, input);
 
-    CleavedResult cleaved_result = Cleave(input.lengths, input.string_ptrs, similarity_chunks, n);
+    const CleavedResult cleaved_result = Cleave(input.lengths, input.string_ptrs, similarity_chunks, n);
 
-    FSSTPlusCompressionResult compression_result = FSSTPlusCompress(n, similarity_chunks, cleaved_result);
+    const FSSTPlusCompressionResult compression_result = FSSTPlusCompress(n, similarity_chunks, cleaved_result);
 
     // decompress to check all went well
     decompress_all(compression_result.data_start, fsst_decoder(compression_result.prefix_encoder),
@@ -234,7 +227,6 @@ int main() {
 
 
     PrintCompressionStats(n, CalculateInputSize(input), compression_result.data_end - compression_result.data_start );
-    std::cout << "TODO: Save compressed data to the database.\n\n";
 
     std::cout << "Cleanup\n";
     fsst_destroy(compression_result.prefix_encoder);
