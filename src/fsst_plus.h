@@ -3,7 +3,10 @@
 #include "basic_fsst.h"
 #include <cmath>
 struct FSSTPlusCompressionResult {
-    uint8_t *data;
+    fsst_encoder_t *prefix_encoder;
+    fsst_encoder_t *suffix_encoder;
+    uint8_t *data_start;
+    uint8_t *data_end;
 };
 
 

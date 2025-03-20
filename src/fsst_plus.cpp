@@ -72,6 +72,112 @@ StringCollection RetrieveData(const unique_ptr<MaterializedQueryResult> &result,
 }
 
 
+std::vector<SimilarityChunk> FormSimilarityChunks(const size_t &n, StringCollection &input) {
+    std::vector<SimilarityChunk> similarity_chunks;
+    similarity_chunks.reserve(n);
+
+    // Figure out the optimal split points (similarity chunks)
+    for (size_t i = 0; i < n; i += config::block_granularity) {
+        const size_t cleaving_run_n = std::min(input.lengths.size() - i, config::block_granularity);
+
+        std::cout << "Current Cleaving Run coverage: " << i << ":" << i + cleaving_run_n - 1 << std::endl;
+
+        TruncatedSort(input.lengths, input.string_ptrs, i, cleaving_run_n);
+
+        const std::vector<SimilarityChunk> cleaving_run_similarity_chunks = FormSimilarityChunks(
+            input.lengths, input.string_ptrs, i, cleaving_run_n);
+        similarity_chunks.insert(similarity_chunks.end(),
+                                 cleaving_run_similarity_chunks.begin(),
+                                 cleaving_run_similarity_chunks.end());
+    }
+    return similarity_chunks;
+}
+
+FSSTPlusCompressionResult FSSTPlusCompress(const size_t n, std::vector<SimilarityChunk> similarity_chunks, CleavedResult cleaved_result) {
+    FSSTPlusCompressionResult compression_result;
+
+    FSSTCompressionResult prefix_compression_result = FSSTCompress(cleaved_result.prefixes);
+    compression_result.prefix_encoder = prefix_compression_result.encoder;
+
+    FSSTCompressionResult suffix_compression_result = FSSTCompress(cleaved_result.suffixes);
+    compression_result.suffix_encoder = suffix_compression_result.encoder;
+
+    // Allocate the maximum size possible for the corpus
+    compression_result.data_start = new uint8_t[CalcMaxFSSTPlusDataSize(prefix_compression_result,
+                                                                  suffix_compression_result)];
+
+    /*
+     *  >>> WRITE GLOBAL HEADER <<<
+     *
+     * To write num_blocks, we must know how many blocks we have. But first let's
+     * calculate the size of each block (giving us also the number of blocks),
+     * allowing us to write block_start_offsets[] and data_end_offset also.
+     */
+
+    // First calculate total size of all blocks
+    std::vector<BlockWritingMetadata> wms;
+    std::vector<size_t> prefix_sum_block_sizes;
+
+    size_t prefix_area_start_index = 0; // start index for this block into all prefixes (stored in prefix_compression_result)
+    size_t suffix_area_start_index = 0; // start index for this block into all suffixes (stored in suffix_compression_result)
+
+    while (suffix_area_start_index < n) {
+        // Create fresh metadata for each block
+        BlockWritingMetadata wm;  // Instead of reusing previous metadata
+        wm.prefix_area_start_index = prefix_area_start_index;
+        wm.suffix_area_start_index = suffix_area_start_index;
+
+        size_t block_size = CalculateBlockSizeAndPopulateWritingMetadata(
+            similarity_chunks, prefix_compression_result, suffix_compression_result, wm,
+            suffix_area_start_index);
+        size_t prefix_summed = prefix_sum_block_sizes.empty()
+                                   ? block_size
+                                   : prefix_sum_block_sizes.back() + block_size;
+        prefix_sum_block_sizes.push_back(prefix_summed);
+        wms.push_back(wm);
+
+        // go on to next block
+        prefix_area_start_index += wm.prefix_n_in_block;
+        suffix_area_start_index += wm.suffix_n_in_block;
+    }
+    uint8_t* global_header_ptr = compression_result.data_start;
+
+    // Now we can write!
+
+    // A) write num_blocks
+    size_t n_blocks = prefix_sum_block_sizes.size();
+    Store<uint16_t>(n_blocks ,global_header_ptr);
+    global_header_ptr+=sizeof(uint16_t);
+
+    // B) write block_start_offsets[]
+    for (size_t i = 0; i < n_blocks; i++) {
+        size_t offsets_to_go = (n_blocks - i); // count itself, so that the "base" begins at the offset's end
+        size_t global_header_size_ahead =
+                offsets_to_go * sizeof(uint32_t)
+                + sizeof(uint32_t); // data_end_offset size
+        size_t total_block_size_ahead =  i == 0 ? 0 : prefix_sum_block_sizes[i-1];
+
+        Store<uint32_t>(global_header_size_ahead + total_block_size_ahead, global_header_ptr);
+        global_header_ptr +=sizeof(uint32_t);
+    }
+
+    // C) write data_end_offset
+    Store<uint32_t>(prefix_sum_block_sizes.back() + sizeof(uint32_t) // count itself, so that the "base" begins at the offset's end
+                    ,global_header_ptr);
+    global_header_ptr +=sizeof(uint32_t);
+
+    uint8_t* next_block_start_ptr = global_header_ptr;
+
+    //  >>> WRITE BLOCKS <<<
+    for (BlockWritingMetadata wm: wms) {
+        // use metadata to write correctly
+        next_block_start_ptr = WriteBlock(next_block_start_ptr, prefix_compression_result, suffix_compression_result, wm);
+    }
+
+    compression_result.data_end = next_block_start_ptr;
+    return compression_result;
+}
+
 int main() {
     DuckDB db(nullptr);
     Connection con(db);
@@ -114,118 +220,24 @@ int main() {
 
     const size_t n = std::min(config::amount_strings_per_symbol_table, static_cast<size_t>(result->RowCount()));
 
-
     StringCollection input = RetrieveData(result, data_chunk, n);
 
-    std::vector<SimilarityChunk> similarity_chunks;
-    similarity_chunks.reserve(n);
+    std::vector<SimilarityChunk> similarity_chunks = FormSimilarityChunks(n, input);
 
-    // Figure out the optimal split points (similarity chunks)
-    for (size_t i = 0; i < n; i += config::block_granularity) {
-        const size_t cleaving_run_n = std::min(input.lengths.size() - i, config::block_granularity);
-
-        std::cout << "Current Cleaving Run coverage: " << i << ":" << i + cleaving_run_n - 1 << std::endl;
-
-        TruncatedSort(input.lengths, input.string_ptrs, i, cleaving_run_n);
-
-        const std::vector<SimilarityChunk> cleaving_run_similarity_chunks = FormSimilarityChunks(
-            input.lengths, input.string_ptrs, i, cleaving_run_n);
-        similarity_chunks.insert(similarity_chunks.end(),
-                                 cleaving_run_similarity_chunks.begin(),
-                                 cleaving_run_similarity_chunks.end());
-    }
-
-
-    // Cleave based on split points
     CleavedResult cleaved_result = Cleave(input.lengths, input.string_ptrs, similarity_chunks, n);
 
-    FSSTPlusCompressionResult compression_result;
-
-    FSSTCompressionResult prefix_compression_result = FSSTCompress(cleaved_result.prefixes);
-    FSSTCompressionResult suffix_compression_result = FSSTCompress(cleaved_result.suffixes);
-
-    // Allocate the maximum size possible for the corpus
-    compression_result.data = new uint8_t[CalcMaxFSSTPlusDataSize(prefix_compression_result,
-                                                                     suffix_compression_result)];
-
-    /*
-     *  >>> WRITE GLOBAL HEADER <<<
-     *
-     * To write num_blocks, we must know how many blocks we have. But first let's
-     * calculate the size of each block (giving us also the number of blocks),
-     * allowing us to write block_start_offsets[] and data_end_offset also.
-     */
-
-    // First calculate total size of all blocks
-    std::vector<BlockWritingMetadata> wms;
-    std::vector<size_t> prefix_sum_block_sizes;
-
-    size_t prefix_area_start_index = 0; // start index for this block into all prefixes (stored in prefix_compression_result)
-    size_t suffix_area_start_index = 0; // start index for this block into all suffixes (stored in suffix_compression_result)
-
-    while (suffix_area_start_index < n) {
-        // Create fresh metadata for each block
-        BlockWritingMetadata wm;  // Instead of reusing previous metadata
-        wm.prefix_area_start_index = prefix_area_start_index;
-        wm.suffix_area_start_index = suffix_area_start_index;
-
-        size_t block_size = CalculateBlockSizeAndPopulateWritingMetadata(
-            similarity_chunks, prefix_compression_result, suffix_compression_result, wm,
-            suffix_area_start_index);
-        size_t prefix_summed = prefix_sum_block_sizes.empty()
-                                        ? block_size
-                                        : prefix_sum_block_sizes.back() + block_size;
-        prefix_sum_block_sizes.push_back(prefix_summed);
-        wms.push_back(wm);
-
-        // go on to next block
-        prefix_area_start_index += wm.prefix_n_in_block;
-        suffix_area_start_index += wm.suffix_n_in_block;
-    }
-    uint8_t* global_header_ptr = compression_result.data;
-
-    // Now we can write!
-
-    // A) write num_blocks
-    size_t n_blocks = prefix_sum_block_sizes.size();
-    Store<uint16_t>(n_blocks ,global_header_ptr);
-    global_header_ptr+=sizeof(uint16_t);
-
-    // B) write block_start_offsets[]
-    for (size_t i = 0; i < n_blocks; i++) {
-        size_t offsets_to_go = (n_blocks - i); // count itself, so that the "base" begins at the offset's end
-        size_t global_header_size_ahead =
-                offsets_to_go * sizeof(uint32_t)
-                + sizeof(uint32_t); // data_end_offset size
-        size_t total_block_size_ahead =  i == 0 ? 0 : prefix_sum_block_sizes[i-1];
-
-        Store<uint32_t>(global_header_size_ahead + total_block_size_ahead, global_header_ptr);
-        global_header_ptr +=sizeof(uint32_t);
-    }
-
-    // C) write data_end_offset
-    Store<uint32_t>(prefix_sum_block_sizes.back() + sizeof(uint32_t) // count itself, so that the "base" begins at the offset's end
-,global_header_ptr);
-    global_header_ptr +=sizeof(uint32_t);
-
-    uint8_t* next_block_start_ptr = global_header_ptr;
-
-    //  >>> WRITE BLOCKS <<<
-    for (BlockWritingMetadata wm: wms) {
-        // use metadata to write correctly
-        next_block_start_ptr = WriteBlock(next_block_start_ptr, prefix_compression_result, suffix_compression_result, wm);
-    }
+    FSSTPlusCompressionResult compression_result = FSSTPlusCompress(n, similarity_chunks, cleaved_result);
 
     // decompress to check all went well
-    decompress_all(compression_result.data, fsst_decoder(prefix_compression_result.encoder),
-                         fsst_decoder(suffix_compression_result.encoder), input.lengths, input.string_ptrs);
+    decompress_all(compression_result.data_start, fsst_decoder(compression_result.prefix_encoder),
+                         fsst_decoder(compression_result.suffix_encoder), input.lengths, input.string_ptrs);
 
 
-    PrintCompressionStats(n, CalculateInputSize(input), next_block_start_ptr - compression_result.data );
+    PrintCompressionStats(n, CalculateInputSize(input), compression_result.data_end - compression_result.data_start );
     std::cout << "TODO: Save compressed data to the database.\n\n";
 
     std::cout << "Cleanup\n";
-    fsst_destroy(prefix_compression_result.encoder);
-    fsst_destroy(suffix_compression_result.encoder);
+    fsst_destroy(compression_result.prefix_encoder);
+    fsst_destroy(compression_result.suffix_encoder);
     return 0;
 }
