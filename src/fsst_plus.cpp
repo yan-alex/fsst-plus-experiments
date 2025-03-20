@@ -30,8 +30,9 @@ uint8_t *find_block_start(uint8_t *block_start_offsets, const int i) {
 
 void decompress_all(uint8_t *global_header, const fsst_decoder_t &prefix_decoder,
 const fsst_decoder_t &suffix_decoder,
-std::vector<size_t> lenIn,
-std::vector<const unsigned char *> strIn) {
+std::vector<size_t> &lenIn,
+std::vector<const unsigned char *> &strIn) {
+    global::global_index = 0;
     uint16_t num_blocks = Load<uint16_t>(global_header);
     uint8_t *block_start_offsets = global_header + sizeof(uint16_t);
     for (int i = 0; i < num_blocks; ++i) {
@@ -44,9 +45,27 @@ std::vector<const unsigned char *> strIn) {
         const uint8_t *block_stop = find_block_start(block_start_offsets, i + 1);
 
         DecompressBlock(block_start, prefix_decoder, suffix_decoder, block_stop, lenIn, strIn);
-
     }
 }
+
+StringCollection RetrieveData(const unique_ptr<MaterializedQueryResult> &result, unique_ptr<DataChunk> &data_chunk, const size_t &n) {
+    std::cout << "🔷 " << n << " strings for this symbol table 🔷 \n";
+
+    auto input = StringCollection(n);
+
+    std::vector<std::string> original_strings;
+    original_strings.reserve(n);
+
+    while (data_chunk) {
+        // Populate lenIn and strIn
+        ExtractStringsFromDataChunk(data_chunk, original_strings, input.lengths, input.strings);
+
+        data_chunk = result->Fetch();
+    }
+
+    return input;
+}
+
 
 int main() {
     DuckDB db(nullptr);
@@ -82,8 +101,6 @@ int main() {
     const auto result = con.Query(query);
     auto data_chunk = result->Fetch();
 
-    size_t total_strings_amount = {0};
-    size_t total_string_size = {0};
 
     std::cout <<
             "===============================================\n" <<
@@ -92,40 +109,22 @@ int main() {
 
     const size_t n = std::min(config::amount_strings_per_symbol_table, static_cast<size_t>(result->RowCount()));
 
-    std::vector<std::string> original_strings;
-    original_strings.reserve(n);
 
-    std::vector<size_t> lenIn;
-    lenIn.reserve(n);
-    std::vector<const unsigned char *> strIn;
-    strIn.reserve(n);
-
+    StringCollection input = RetrieveData(result, data_chunk, n);
 
     std::vector<SimilarityChunk> similarity_chunks;
     similarity_chunks.reserve(n);
 
-    std::cout << "🔷 " << n << " strings for this symbol table 🔷 \n";
-
-    while (data_chunk) {
-        // std::cout << "> New DuckDB DataChunk: \n";
-        // std::cout << " Compression run coverage: 0:" << data_chunk->size() - 1;
-
-        // Populate lenIn and strIn
-        ExtractStringsFromDataChunk(data_chunk, original_strings, lenIn, strIn);
-
-        data_chunk = result->Fetch();
-    }
-
     // Figure out the optimal split points (similarity chunks)
     for (size_t i = 0; i < n; i += config::block_granularity) {
-        const size_t cleaving_run_n = std::min(lenIn.size() - i, config::block_granularity);
+        const size_t cleaving_run_n = std::min(input.lengths.size() - i, config::block_granularity);
 
         std::cout << "Current Cleaving Run coverage: " << i << ":" << i + cleaving_run_n - 1 << std::endl;
 
-        TruncatedSort(lenIn, strIn, i, cleaving_run_n);
+        TruncatedSort(input.lengths, input.strings, i, cleaving_run_n);
 
         const std::vector<SimilarityChunk> cleaving_run_similarity_chunks = FormSimilarityChunks(
-            lenIn, strIn, i, cleaving_run_n);
+            input.lengths, input.strings, i, cleaving_run_n);
         similarity_chunks.insert(similarity_chunks.end(),
                                  cleaving_run_similarity_chunks.begin(),
                                  cleaving_run_similarity_chunks.end());
@@ -133,26 +132,20 @@ int main() {
 
 
     // Cleave based on split points
-    CleavedResult cleaved_result = CleavedResult(n);
-
-    Cleave(lenIn, strIn, similarity_chunks, cleaved_result);
+    CleavedResult cleaved_result = Cleave(input.lengths, input.strings, similarity_chunks, n);
 
     FSSTPlusCompressionResult compression_result;
 
     FSSTCompressionResult prefix_compression_result = FSSTCompress(cleaved_result.prefixes);
-    // size_t encoded_prefixes_byte_size = calc_encoded_strings_size(prefix_result);
     FSSTCompressionResult suffix_compression_result = FSSTCompress(cleaved_result.suffixes);
-    // size_t encoded_suffixes_byte_size = calc_encoded_strings_size(suffix_result);
 
     // Allocate the maximum size possible for the corpus
     compression_result.data = new uint8_t[CalcMaxFSSTPlusDataSize(prefix_compression_result,
-                                                                      suffix_compression_result)];
-
-
-
-    // First write Global Header
+                                                                      suffix_compression_result)*4]; //TODO: why *4 needed? function should work without it
 
     /*
+     *  >>> WRITE GLOBAL HEADER <<<
+     *
      * To write num_blocks, we must know how many blocks we have. But first let's
      * calculate the size of each block (giving us also the number of blocks),
      * allowing us to write block_start_offsets[] and data_end_offset also.
@@ -211,6 +204,8 @@ int main() {
     global_header_ptr +=sizeof(uint32_t);
 
     uint8_t* next_block_start_ptr = global_header_ptr;
+
+    //  >>> WRITE BLOCKS <<<
     for (BlockWritingMetadata wm: wms) {
         // use metadata to write correctly
         next_block_start_ptr = WriteBlock(next_block_start_ptr, prefix_compression_result, suffix_compression_result, wm);
@@ -218,15 +213,10 @@ int main() {
 
     // decompress to check all went well
     decompress_all(compression_result.data, fsst_decoder(prefix_compression_result.encoder),
-                         fsst_decoder(suffix_compression_result.encoder), lenIn, strIn);
+                         fsst_decoder(suffix_compression_result.encoder), input.lengths, input.strings);
 
 
-    total_strings_amount += lenIn.size();
-    for (size_t string_length: lenIn) {
-        total_string_size += string_length;
-    }
-
-    PrintCompressionStats(total_strings_amount, total_string_size, next_block_start_ptr - compression_result.data );
+    PrintCompressionStats(n, CalculateInputSize(input), next_block_start_ptr - compression_result.data );
     std::cout << "TODO: Save compressed data to the database.\n\n";
 
     std::cout << "Cleanup\n";

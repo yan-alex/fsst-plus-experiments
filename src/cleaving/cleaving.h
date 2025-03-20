@@ -127,11 +127,13 @@ inline std::vector<SimilarityChunk> FormSimilarityChunks(
     return chunks;
 }
 
-inline CleavedResult& Cleave(const std::vector<size_t> &lenIn,
+inline CleavedResult Cleave(const std::vector<size_t> &lenIn,
                             std::vector<const unsigned char *> &strIn,
                             const std::vector<SimilarityChunk> &similarity_chunks,
-                            CleavedResult &cleaved_result
+                            size_t n
 ) {
+    auto cleaved_result = CleavedResult(n);
+
     std::vector<size_t> *pl = &cleaved_result.prefixes.lengths;
     std::vector<const unsigned char *> *ps = &cleaved_result.prefixes.strings;
     std::vector<size_t> *sl = &cleaved_result.suffixes.lengths;

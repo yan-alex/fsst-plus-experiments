@@ -17,8 +17,8 @@ inline bool TextMatches(const unsigned char *result, const unsigned char *origin
 }
 inline void DecompressBlock(const uint8_t *block_start, const fsst_decoder_t &prefix_decoder,
 const fsst_decoder_t &suffix_decoder, const uint8_t *block_stop,
-std::vector<size_t> lenIn,
-std::vector<const unsigned char *> strIn) {
+std::vector<size_t> &lenIn,
+std::vector<const unsigned char *> &strIn) {
     if (config::print_decompressed_corpus) {
         std::cout << " ------- Block " << global::global_index/128 << "\n";
     }

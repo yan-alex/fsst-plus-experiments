@@ -11,7 +11,7 @@ inline void ExtractStringsFromDataChunk(const unique_ptr<DataChunk> &data_chunk,
                                             std::vector<std::string> &original_strings, std::vector<size_t> &lenIn,
                                             std::vector<const unsigned char *> &strIn) {
     auto &vector = data_chunk->data[0];
-    auto vector_data = FlatVector::GetData<string_t>(vector);
+    const auto vector_data = FlatVector::GetData<string_t>(vector);
 
     // Populate lenIn and strIn
     for (size_t i = 0; i < data_chunk->size(); i++) {

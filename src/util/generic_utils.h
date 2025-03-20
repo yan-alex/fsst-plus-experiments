@@ -30,3 +30,10 @@ inline size_t FindSimilarityChunkCorrespondingToIndex(const size_t &target_index
 }
 
 
+inline size_t CalculateInputSize(const StringCollection &input) {
+    size_t total_string_size = 0;
+    for (size_t string_length: input.lengths) {
+        total_string_size += string_length;
+    }
+    return total_string_size;
+}
