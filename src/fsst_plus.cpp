@@ -1,6 +1,7 @@
 #include "config.h"
 #include "duckdb.hpp"
 #include <iostream>
+#include <fstream>
 #include <ranges>
 #include "fsst_plus.h"
 #include "cleaving.h"
@@ -172,64 +173,279 @@ FSSTPlusCompressionResult FSSTPlusCompress(const size_t n, std::vector<Similarit
 }
 
 int main() {
-    DuckDB db(nullptr);
+    // Define project directory
+    string project_dir = "~/fsst-plus-experiments/";
+    // string project_dir = "/Users/yanlannaalexandre/_DA_REPOS/fsst-plus-experiments";
+
+    // Create a persistent database connection
+    string db_path = project_dir + "/data/benchmark.db";
+    
+    // Ensure the data directory exists using system commands
+    system(("mkdir -p " + project_dir + "/data").c_str());
+    
+    // Remove any existing database file to start fresh
+    system(("rm -f " + db_path).c_str());
+    
+    DuckDB db(db_path);
     Connection con(db);
-
-    // // Create the benchchmark_results table
-    // const std::string create_benchchmark_results_query =
-    //     "CREATE TABLE IF NOT EXISTS benchchmark_results ("
-    //     "id INTEGER PRIMARY KEY, "
-    //     "dataset VARCHAR, "
-    //     "column VARCHAR, "
-    //     "algo VARCHAR, "
-    //     "amount_of_rows DOUBLE, "
-    //     "run_time_ms DOUBLE, "
-    //     "compression_factor VARCHAR, "
-    //     ");";
-    // auto benchchmark_results_create_result = con.Query(create_benchchmark_results_query);
-    // if (!benchchmark_results_create_result->success) {
-    //     std::cerr << "Failed to create benchchmark_results table: " << benchchmark_results_create_result->error << std::endl;
-    //     return 1;
-    // }
-
-    // Create the benchchmark_results table
-    const string query =
-            "SELECT Url FROM read_parquet('/Users/yanlannaalexandre/_DA_REPOS/fsst-plus-experiments/data/refined/clickbench.parquet')"
-            "LIMIT " + std::to_string(config::total_strings) +
-             ";";
-
-    // ======= RUN BASIC FSST TO COMPARE =======
-    RunBasicFSST(con, query);
-
-    // Now continue with main's own processing
-    const auto result = con.Query(query);
-    auto data_chunk = result->Fetch();
-
-
-    std::cout <<
-            "===============================================\n" <<
-            "==========START FSST PLUS COMPRESSION==========\n" <<
-            "===============================================\n";
-
-    const size_t n = std::min(config::amount_strings_per_symbol_table, static_cast<size_t>(result->RowCount()));
-
-    StringCollection input = RetrieveData(result, data_chunk, n);
-
-    const std::vector<SimilarityChunk> similarity_chunks = FormSimilarityChunks(n, input);
-
-    const CleavedResult cleaved_result = Cleave(input.lengths, input.string_ptrs, similarity_chunks, n);
-
-    const FSSTPlusCompressionResult compression_result = FSSTPlusCompress(n, similarity_chunks, cleaved_result);
-
-    // decompress to check all went well
-    decompress_all(compression_result.data_start, fsst_decoder(compression_result.prefix_encoder),
-                         fsst_decoder(compression_result.suffix_encoder), input.lengths, input.string_ptrs);
-
-
-    PrintCompressionStats(n, CalculateInputSize(input), compression_result.data_end - compression_result.data_start );
-
-    std::cout << "Cleanup\n";
-    fsst_destroy(compression_result.prefix_encoder);
-    fsst_destroy(compression_result.suffix_encoder);
+    
+    // Begin transaction
+    con.Query("BEGIN TRANSACTION");
+    
+    // Create a results table to store benchmarks
+    const string create_results_table =
+        "CREATE TABLE results ("
+        "dataset VARCHAR, "
+        "col_name VARCHAR, "
+        "algo VARCHAR, "
+        "amount_of_rows BIGINT, "
+        "run_time_ms DOUBLE, "
+        "compression_factor DOUBLE"
+        ");";
+    
+    try {
+        con.Query(create_results_table);
+        
+        // Commit the transaction to persist the table
+        con.Query("COMMIT");
+    } catch (std::exception& e) {
+        con.Query("ROLLBACK");
+        std::cerr << "Failed to create results table: " << e.what() << std::endl;
+        return 1;
+    }
+    
+    // Verify the table was created (after commit)
+    auto verify_result = con.Query("SHOW TABLES");
+    auto verify_chunk = verify_result->Fetch();
+    bool found_results_table = false;
+    
+    std::cout << "Available tables after creation: " << std::endl;
+    while (verify_chunk) {
+        // Only access columns that exist
+        size_t num_cols = verify_chunk->data.size();
+        if (num_cols == 0) {
+            std::cerr << "SHOW TABLES returned no columns" << std::endl;
+            break;
+        }
+        
+        // Use the first column as it contains the table name in this case
+        auto table_names = duckdb::FlatVector::GetData<duckdb::string_t>(verify_chunk->data[0]);
+        for (size_t i = 0; i < verify_chunk->size(); i++) {
+            std::string table_name = table_names[i].GetString();
+            std::cout << " - " << table_name << std::endl;
+            if (table_name == "results") {
+                found_results_table = true;
+            }
+        }
+        verify_chunk = verify_result->Fetch();
+    }
+    
+    if (!found_results_table) {
+        std::cerr << "Results table was not created successfully" << std::endl;
+        return 1;
+    } else {
+        std::cout << "Results table created successfully" << std::endl;
+    }
+    
+    // List all datasets in the refined directory
+    string data_dir = project_dir + "/data/refined";
+    vector<string> datasets;
+    auto files_result = con.Query("SELECT file FROM glob('" + data_dir + "/*.parquet')");
+    try {
+        auto files_chunk = files_result->Fetch();
+        while (files_chunk) {
+            auto file_names = duckdb::FlatVector::GetData<duckdb::string_t>(files_chunk->data[0]);
+            for (size_t i = 0; i < files_chunk->size(); i++) {
+                datasets.push_back(file_names[i].GetString());
+            }
+            files_chunk = files_result->Fetch();
+        }
+    } catch (std::exception& e) {
+        std::cerr << "Failed to list parquet files: " << e.what() << std::endl;
+        return 1;
+    }
+    
+    // For each dataset
+    for (const auto& dataset_path : datasets) {
+        // Extract dataset name from path
+        string dataset_name = dataset_path.substr(dataset_path.find_last_of("/") + 1);
+        dataset_name = dataset_name.substr(0, dataset_name.find_last_of("."));
+        
+        // Get columns from dataset
+        con.Query("CREATE OR REPLACE VIEW temp_view AS SELECT * FROM read_parquet('" + dataset_path + "')");
+        auto columns_result = con.Query("SELECT column_name FROM duckdb_columns() WHERE table_name = 'temp_view'");
+        
+        try {
+            auto columns_chunk = columns_result->Fetch();
+            vector<string> column_names;
+            while (columns_chunk) {
+                auto column_data = duckdb::FlatVector::GetData<duckdb::string_t>(columns_chunk->data[0]);
+                for (size_t i = 0; i < columns_chunk->size(); i++) {
+                    column_names.push_back(column_data[i].GetString());
+                }
+                columns_chunk = columns_result->Fetch();
+            }
+            
+            // For each column
+            for (const auto& column_name : column_names) {
+                std::cout << "Processing dataset: " << dataset_name << ", column: " << column_name << std::endl;
+                
+                // Set global variables for tracking
+                global::dataset = dataset_name;
+                global::column = column_name;
+                global::algo = "fsst_plus";
+                
+                // Query to get column data
+                const string query =
+                    "SELECT \"" + column_name + "\" FROM read_parquet('" + dataset_path + "')"
+                    "LIMIT " + std::to_string(config::total_strings) + ";";
+                
+                // Skip non-string columns
+                auto column_type_result = con.Query("SELECT data_type FROM duckdb_columns() WHERE table_name = 'temp_view' AND column_name = '" + column_name + "'");
+                auto column_type_chunk = column_type_result->Fetch();
+                if (column_type_chunk) {
+                    string type = duckdb::FlatVector::GetData<duckdb::string_t>(column_type_chunk->data[0])[0].GetString();
+                    if (type.find("VARCHAR") == string::npos && type.find("STRING") == string::npos) {
+                        std::cout << "Skipping non-string column: " << column_name << " (type: " << type << ")" << std::endl;
+                        continue;
+                    }
+                }
+                
+                try {
+                    // Start timing
+                    auto start_time = std::chrono::high_resolution_clock::now();
+                    
+                    // Run Basic FSST for comparison
+                    global::algo = "basic_fsst";
+                    RunBasicFSST(con, query);
+                    
+                    // Now run FSST Plus
+                    global::algo = "fsst_plus";
+                    const auto result = con.Query(query);
+                    global::amount_of_rows = result->RowCount();
+                    
+                    auto data_chunk = result->Fetch();
+                    if (!data_chunk || data_chunk->size() == 0) {
+                        std::cout << "No data for column: " << column_name << std::endl;
+                        continue;
+                    }
+                    
+                    const size_t n = std::min(config::amount_strings_per_symbol_table, static_cast<size_t>(result->RowCount()));
+                    
+                    StringCollection input = RetrieveData(result, data_chunk, n);
+                    
+                    std::cout << "===============================================\n" <<
+                            "==========START FSST PLUS COMPRESSION==========\n" <<
+                            "===============================================\n";
+                    
+                    const std::vector<SimilarityChunk> similarity_chunks = FormSimilarityChunks(n, input);
+                    
+                    const CleavedResult cleaved_result = Cleave(input.lengths, input.string_ptrs, similarity_chunks, n);
+                    
+                    const FSSTPlusCompressionResult compression_result = FSSTPlusCompress(n, similarity_chunks, cleaved_result);
+                    
+                    // decompress to check all went well
+                    decompress_all(compression_result.data_start, fsst_decoder(compression_result.prefix_encoder),
+                                fsst_decoder(compression_result.suffix_encoder), input.lengths, input.string_ptrs);
+                    
+                    // End timing
+                    auto end_time = std::chrono::high_resolution_clock::now();
+                    global::run_time_ms = std::chrono::duration<double, std::milli>(end_time - start_time).count();
+                    
+                    size_t input_size = CalculateInputSize(input);
+                    size_t compressed_size = compression_result.data_end - compression_result.data_start;
+                    global::compression_factor = static_cast<double>(input_size) / compressed_size;
+                    
+                    PrintCompressionStats(n, input_size, compressed_size);
+                    
+                    // Add results to table
+                    string insert_query = "INSERT INTO results VALUES ('" + 
+                        global::dataset + "', '" + 
+                        global::column + "', '" + 
+                        global::algo + "', " + 
+                        std::to_string(global::amount_of_rows) + ", " + 
+                        std::to_string(global::run_time_ms) + ", " + 
+                        std::to_string(global::compression_factor) + ");";
+                    
+                    try {
+                        con.Query(insert_query);
+                        std::cout << "Inserted result for " << dataset_name << "." << column_name << std::endl;
+                    } catch (std::exception& e) {
+                        std::cerr << "Failed to insert result: " << e.what() << std::endl;
+                    }
+                    
+                    // Cleanup
+                    fsst_destroy(compression_result.prefix_encoder);
+                    fsst_destroy(compression_result.suffix_encoder);
+                } catch (std::exception& e) {
+                    std::cerr << "Error processing " << dataset_name << "." << column_name << ": " << e.what() << std::endl;
+                }
+            }
+        } catch (std::exception& e) {
+            std::cerr << "Failed to get columns for " << dataset_name << ": " << e.what() << std::endl;
+        }
+    }
+    
+    // Save results to parquet file
+    try {
+        // Make sure we can access the results table
+        auto verify_result2 = con.Query("SHOW TABLES");
+        auto verify_chunk2 = verify_result2->Fetch();
+        bool found_results_table2 = false;
+        
+        std::cout << "Available tables before saving:" << std::endl;
+        while (verify_chunk2) {
+            // Only access columns that exist
+            size_t num_cols = verify_chunk2->data.size();
+            if (num_cols == 0) {
+                std::cerr << "SHOW TABLES returned no columns" << std::endl;
+                break;
+            }
+            
+            // Use the first column as it contains the table name in this case
+            auto table_names = duckdb::FlatVector::GetData<duckdb::string_t>(verify_chunk2->data[0]);
+            for (size_t i = 0; i < verify_chunk2->size(); i++) {
+                std::string table_name = table_names[i].GetString();
+                std::cout << " - " << table_name << std::endl;
+                if (table_name == "results") {
+                    found_results_table2 = true;
+                }
+            }
+            verify_chunk2 = verify_result2->Fetch();
+        }
+        
+        if (!found_results_table2) {
+            throw std::runtime_error("Results table not found before saving");
+        }
+        
+        // Check how many results we have before saving
+        auto count_result = con.Query("SELECT COUNT(*) FROM results");
+        auto count_chunk = count_result->Fetch();
+        size_t result_count = 0;
+        if (count_chunk) {
+            result_count = duckdb::FlatVector::GetData<int64_t>(count_chunk->data[0])[0];
+            std::cout << "Number of benchmark results: " << result_count << std::endl;
+        }
+        
+        if (result_count == 0) {
+            std::cout << "Warning: No results to save!" << std::endl;
+            return 0;
+        }
+        
+        // Save results to parquet file
+        string save_query = "COPY results TO '" + project_dir + "/data/results.parquet' (FORMAT 'parquet')";
+        con.Query(save_query);
+        
+        // Verify the file was created
+        std::ifstream file_check((project_dir + "/data/results.parquet").c_str());
+        if (file_check.good()) {
+            std::cout << "Results saved to " << project_dir << "/data/results.parquet" << std::endl;
+        } else {
+            std::cerr << "Warning: Results file not found after save operation" << std::endl;
+        }
+    } catch (std::exception& e) {
+        std::cerr << "Error saving results: " << e.what() << std::endl;
+    }
+    
     return 0;
 }
