@@ -7,7 +7,8 @@ import requests
 
 
 DATA_URL = 'https://event.cwi.nl/da/CyclicJoinBench/'
-DATA_PATH = '/Users/yanlannaalexandre/_DA_REPOS/fsst-plus-experiments/data/raw'
+# DATA_PATH = '/Users/yanlannaalexandre/_DA_REPOS/fsst-plus-experiments/data/raw'
+DATA_PATH = '../../../data/raw/'
 
 
 def get_file_paths_of_dir(directory_path: str, recursive: bool = True) -> List[str]:

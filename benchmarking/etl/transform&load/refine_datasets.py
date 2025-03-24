@@ -1,12 +1,12 @@
 import polars as pl
-from pathlib import Path
+from pathlib import Path, PurePath
 import os
 
-def refine_dataset(input_path: str, output_path: str):
-    print(f"Refining {input_path} -> {output_path}");
+def refine_dataset(input_path: PurePath, output_path: PurePath):
+    print(f"\nRefining {str(input_path)} -> {str(output_path)}");
     
     """Process a single Parquet file using the refinement logic"""
-    df = pl.read_parquet(input_path)
+    df = pl.read_parquet(str(input_path))
     
     # Text column selection criteria
     text_columns = [
@@ -18,21 +18,19 @@ def refine_dataset(input_path: str, output_path: str):
     
     # Only write the file if there are text columns that meet our criteria
     if text_columns:
+        # Ensure the parent directory exists
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
         df_text = df.select(text_columns)
-        df_text.write_parquet(output_path)
+        df_text.write_parquet(str(output_path))
+        print(f"✅ Processed {str(input_path)} -> {str(output_path)}, with columns: {text_columns}")
+
         return True
     else:
-        # If no text columns found, include the first column to ensure a valid Parquet file
-        if len(df.columns) > 0:
-            df_min = df.select([df.columns[0]])
-            df_min.write_parquet(output_path)
-            print(f"Warning: No suitable text columns found in {input_path}. Including only the first column.")
-            return True
-        else:
-            print(f"Error: No columns found in {input_path}. Skipping file.")
-            return False
+        print(f"❌ No columns found in {str(input_path)} that match the criteria. Skipping file.")
+        return False
 
-def process_raw_directory(raw_dir: str = "/export/scratch2/home/yla/fsst-plus-experiments/data/raw", output_dir: str = "/export/scratch2/home/yla/fsst-plus-experiments/data/refined"):
+def process_raw_directory(raw_dir: str = "../../../data/raw", output_dir: str = "../../../data/refined"):
     """Process all Parquet files in the raw directory and its subdirectories"""
     raw_path = Path(raw_dir)
     output_path = Path(output_dir)
@@ -42,25 +40,21 @@ def process_raw_directory(raw_dir: str = "/export/scratch2/home/yla/fsst-plus-ex
     
     # Process all Parquet files recursively
     processed_count = 0
-    skipped_count = 0
+    error_count = 0
     
     for parquet_file in raw_path.glob("**/*.parquet"):
         # Preserve directory structure
         relative_path = parquet_file.relative_to(raw_path)
         output_file = output_path / relative_path
         
-        # Ensure the parent directory exists
-        output_file.parent.mkdir(parents=True, exist_ok=True)
-        
-        success = refine_dataset(str(parquet_file), str(output_file))
-        if success:
-            print(f"Processed {parquet_file} -> {output_file}")
+
+        found_columns = refine_dataset(parquet_file, output_file)
+        if found_columns:
             processed_count += 1
         else:
-            print(f"Skipped {parquet_file}")
-            skipped_count += 1
+            error_count += 1
     
-    print(f" 🌐 Macrodata Refinement Complete 🌐 \n {processed_count} files processed, {skipped_count} files skipped")
+    print(f" 🌐 Macrodata Refinement Complete 🌐 \n {processed_count} files matched the criteria, {error_count} files didn't have compatible columns")
 
 if __name__ == "__main__":
     process_raw_directory() 

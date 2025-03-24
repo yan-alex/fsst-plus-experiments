@@ -7,26 +7,36 @@
 
 inline size_t FindSimilarityChunkCorrespondingToIndex(const size_t &target_index,
                                                            const std::vector<SimilarityChunk> &similarity_chunks) {
-    // Binary search
+    // Handle empty or single chunk case
+    if (similarity_chunks.empty()) {
+        return 0;
+    }
+
+    // Binary search to find the chunk where target_index falls between start_index of current chunk
+    // and start_index of next chunk (or is within the last chunk)
     size_t l = 0, r = similarity_chunks.size() - 1;
     while (l <= r) {
         const size_t m = l + (r - l) / 2;
-        if (similarity_chunks[m].start_index < target_index && similarity_chunks[m + 1].start_index <= target_index) {
+
+        // If this is the last chunk or if target is in current chunk's range
+        if (m == similarity_chunks.size() - 1 ||
+            (similarity_chunks[m].start_index <= target_index &&
+             target_index < similarity_chunks[m + 1].start_index)) {
+            return m;
+             }
+
+        // If target is in a later chunk
+        if (similarity_chunks[m].start_index <= target_index) {
             l = m + 1;
-            continue;
         }
-        if (target_index < similarity_chunks[m].start_index) {
+        // If target is in an earlier chunk
+        else {
             r = m - 1;
-            continue;
         }
-        return m;
     }
 
-    /*
-     * When we can't find_similarity_chunk_corresponding_to_index,
-     * assuming it corresponds to the last chunk
-     */
-    return similarity_chunks.size()-1; //TODO Is this correct for all occasions? Write tests for this binary search.
+    // Default to the last chunk if not found
+    return similarity_chunks.size() - 1;
 }
 
 

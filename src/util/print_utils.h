@@ -76,5 +76,5 @@ inline void PrintCompressionStats(
     std::cout << "Original   size: " << total_string_size << " bytes\n";
     std::cout << "Compressed size: " << total_compressed_string_size << " bytes\n";
     std::cout << "Compression factor: " << static_cast<double>(total_string_size) / total_compressed_string_size <<
-            "\n\n";
+            "\n";
 }

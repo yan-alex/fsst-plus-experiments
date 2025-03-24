@@ -45,8 +45,27 @@ inline void ExtractStringsFromResultChunk(const duckdb::unique_ptr<duckdb::DataC
 
     // Populate lenIn and strIn
     for (size_t i = 0; i < data_chunk->size(); i++) {
-        if (!vector_data[i].Empty()) {
-            std::string str = vector_data[i].GetString();
+
+        const char *data_ptr = vector_data[i].GetData();
+
+        // if (static_cast<int>(*data_ptr) ==  0xbebebebebebebebe) {
+        //     continue; //TODO: Should save "" instead right?
+        // }
+
+        // bool isnull = true;
+        // for (int j = 0; i < 32; ++i) {
+        //     if (data_ptr ==  0xbe) {
+        //         isnull= false;
+        //         break;
+        //     }
+        // }
+        // if (isnull) {
+        //     continue;
+        // }
+
+        if (!vector_data[i].Empty()) { //TODO: Should save "" instead right?
+            std::size_t string_size = vector_data[i].GetSize();
+            std::string str = vector_data[i].GetString(); // TODO: Throws segfault when value is null
 
             original_strings.push_back(str);
             const std::string &stored_str = original_strings.back();

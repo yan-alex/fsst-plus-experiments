@@ -1,7 +1,11 @@
 #pragma once
 #include <cstddef>
+#include <string>
 
 namespace config {
+    // const std::string project_dir = "/export/scratch2/home/yla/fsst-plus-experiments";
+    const std::string project_dir = "/Users/yanlannaalexandre/_DA_REPOS/fsst-plus-experiments";
+
     extern const size_t total_strings;
     extern const size_t block_byte_capacity;
     extern const bool print_sorted_corpus; // whether to print sorted strings.

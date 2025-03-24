@@ -22,14 +22,14 @@ namespace config {
 }
 
 
-uint8_t *find_block_start(uint8_t *block_start_offsets, const int i) {
+uint8_t *FindBlockStart(uint8_t *block_start_offsets, const int i) {
     uint8_t *offset_ptr = block_start_offsets + (i * sizeof(uint32_t));
     const uint32_t offset = Load<uint32_t>(offset_ptr);
     uint8_t *block_start =  offset_ptr + offset;
     return block_start;
 }
 
-void decompress_all(uint8_t *global_header, const fsst_decoder_t &prefix_decoder,
+void DecompressAll(uint8_t *global_header, const fsst_decoder_t &prefix_decoder,
 const fsst_decoder_t &suffix_decoder,
 std::vector<size_t> &lenIn,
 std::vector<const unsigned char *> &strIn) {
@@ -37,13 +37,13 @@ std::vector<const unsigned char *> &strIn) {
     uint16_t num_blocks = Load<uint16_t>(global_header);
     uint8_t *block_start_offsets = global_header + sizeof(uint16_t);
     for (int i = 0; i < num_blocks; ++i) {
-        const uint8_t *block_start = find_block_start(block_start_offsets, i);
+        const uint8_t *block_start = FindBlockStart(block_start_offsets, i);
         /*
          * Block stop is next block's start. Note that this also works for the last block, so no over-read,
          * as we save an "extra" data_end_offset, pointing to where the last block stops. This is needed to
          * calculate the length
          */
-        const uint8_t *block_stop = find_block_start(block_start_offsets, i + 1);
+        const uint8_t *block_stop = FindBlockStart(block_start_offsets, i + 1);
 
         DecompressBlock(block_start, prefix_decoder, suffix_decoder, block_stop, lenIn, strIn);
     }
@@ -176,7 +176,7 @@ FSSTPlusCompressionResult FSSTPlusCompress(const size_t n, std::vector<Similarit
     return compression_result;
 }
 
-bool create_results_table(Connection &con) {
+bool CreateResultsTable(Connection &con) {
     // Begin transaction
     con.Query("BEGIN TRANSACTION");
 
@@ -239,7 +239,7 @@ bool create_results_table(Connection &con) {
     return found_results_table;
 }
 
-vector<string> find_datasets(Connection &con, const string &data_dir) {
+vector<string> FindDatasets(Connection &con, const string &data_dir) {
     vector<string> datasets;
     const auto files_result = con.Query("SELECT file FROM glob('" + data_dir + "/**/*.parquet')");
     try {
@@ -286,15 +286,15 @@ bool ColumnIsStringType(Connection &con, const string &column_name) {
 
 int main() {
     // Define project directory
-    string project_dir = "/export/scratch2/home/yla/fsst-plus-experiments";
+    // string project_dir = "/export/scratch2/home/yla/fsst-plus-experiments";
     // string project_dir = "~/fsst-plus-experiments/";
     // string project_dir = "/Users/yanlannaalexandre/_DA_REPOS/fsst-plus-experiments";
 
     // Create a persistent database connection
-    string db_path = project_dir + "/benchmarking/results/benchmark.db";
+    string db_path = config::project_dir + "/benchmarking/results/benchmark.db";
     
     // Ensure the data directory exists using system commands
-    system(("mkdir -p " + project_dir + "benchmarking/data").c_str());
+    system(("mkdir -p " + config::project_dir + "benchmarking/data").c_str());
     
     // Remove any existing database file to start fresh
     system(("rm -f " + db_path).c_str());
@@ -302,16 +302,22 @@ int main() {
     DuckDB db(db_path);
     Connection con(db);
     
-    if (!create_results_table(con)) return 1;
+    if (!CreateResultsTable(con)) return 1;
     
     // List all datasets in the refined directory
-    string data_dir = project_dir + "/benchmarking/data/refined";
-    vector<string> datasets = find_datasets(con, data_dir);
+    string data_dir = config::project_dir + "/data/refined";
+    vector<string> datasets = FindDatasets(con, data_dir);
     
     // For each dataset
     for (const auto& dataset_path : datasets) {
+
+
         // Extract dataset name from path
-        string dataset_name = dataset_path.substr(dataset_path.find_last_of("/") + 1).substr(0, dataset_name.find_last_of("."));
+        string substring = dataset_path.substr(dataset_path.find_last_of("/") + 1);
+        string dataset_name = substring.substr(0, substring.find_last_of('.'));
+
+        std::cout<<"dataset_path: "<<dataset_path << "\n";
+        std::cout<<"dataset_name: "<< dataset_name << "\n";
 
         // Get columns from dataset
         con.Query("CREATE OR REPLACE VIEW temp_view AS SELECT * FROM read_parquet('" + dataset_path + "')");
@@ -322,8 +328,13 @@ int main() {
             
             // For each column
             for (const auto& column_name : column_names) {
-                std::cout << "Processing dataset: " << dataset_name << ", column: " << column_name << std::endl;
-                
+                std::cout << "\n> Processing dataset: " << dataset_name << ", column: " << column_name << std::endl;
+                // Skip this column if it's not string
+                if (!ColumnIsStringType(con, column_name)) {
+                    std::cerr<<"Refined column is not string time. This should not happen as refinement should deal with that. Terminating";
+                    throw std::logic_error("Refined column is not string time. This should not happen as refinement should deal with that. Terminating");
+                }
+
                 // Set global variables for tracking
                 global::dataset = dataset_name;
                 global::column = column_name;
@@ -333,11 +344,6 @@ int main() {
                 const string query =
                     "SELECT \"" + column_name + "\" FROM read_parquet('" + dataset_path + "')"
                     "LIMIT " + std::to_string(config::total_strings) + ";";
-                
-                // Skip non-string columns
-                if (!ColumnIsStringType(con, column_name)) {
-                    continue;
-                }
                 
                 try {
 
@@ -381,7 +387,7 @@ int main() {
                     const FSSTPlusCompressionResult compression_result = FSSTPlusCompress(n, similarity_chunks, cleaved_result);
                     
                     // decompress to check all went well
-                    decompress_all(compression_result.data_start, fsst_decoder(compression_result.prefix_encoder),
+                    DecompressAll(compression_result.data_start, fsst_decoder(compression_result.prefix_encoder),
                                 fsst_decoder(compression_result.suffix_encoder), input.lengths, input.string_ptrs);
                     
                     // End timing
@@ -472,13 +478,13 @@ int main() {
         }
         
         // Save results to parquet file
-        string save_query = "COPY results TO '" + project_dir + "/benchmarking/results/results.parquet' (FORMAT 'parquet', OVERWRITE TRUE)";
+        string save_query = "COPY results TO '" + config::project_dir + "/benchmarking/results/results.parquet' (FORMAT 'parquet', OVERWRITE TRUE)";
         con.Query(save_query);
         
         // Verify the file was created
-        std::ifstream file_check((project_dir + "/benchmarking/results/results.parquet").c_str());
+        std::ifstream file_check((config::project_dir + "/benchmarking/results/results.parquet").c_str());
         if (file_check.good()) {
-            std::cout << "Results saved to " << project_dir << "/benchmarking/results/results.parquet" << std::endl;
+            std::cout << "Results saved to " << config::project_dir << "/benchmarking/results/results.parquet" << std::endl;
         } else {
             std::cerr << "Warning: Results file not found after save operation" << std::endl;
         }
