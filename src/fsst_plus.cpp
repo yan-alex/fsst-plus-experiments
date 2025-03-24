@@ -176,6 +176,114 @@ FSSTPlusCompressionResult FSSTPlusCompress(const size_t n, std::vector<Similarit
     return compression_result;
 }
 
+bool create_results_table(Connection &con) {
+    // Begin transaction
+    con.Query("BEGIN TRANSACTION");
+
+    // Create a results table to store benchmarks
+    const string create_results_table =
+            "CREATE TABLE results ("
+            "dataset VARCHAR, "
+            "col_name VARCHAR, "
+            "algo VARCHAR, "
+            "amount_of_rows BIGINT, "
+            "run_time_ms DOUBLE, "
+            "compression_factor DOUBLE, "
+            "num_strings BIGINT, "
+            "original_size BIGINT"
+            ");";
+
+    try {
+        con.Query(create_results_table);
+
+        // Commit the transaction to persist the table
+        con.Query("COMMIT");
+    } catch (std::exception& e) {
+        con.Query("ROLLBACK");
+        std::cerr << "Failed to create results table: " << e.what() << std::endl;
+        return false;
+    }
+
+    // Verify the table was created (after commit)
+    auto verify_result = con.Query("SHOW TABLES");
+    auto verify_chunk = verify_result->Fetch();
+    bool found_results_table = false;
+
+    while (verify_chunk) {
+        // Only access columns that exist
+        size_t num_cols = verify_chunk->data.size();
+        if (num_cols == 0) {
+            std::cerr << "SHOW TABLES returned no columns" << std::endl;
+            break;
+        }
+
+        // Use the first column as it contains the table name in this case
+        auto table_names = duckdb::FlatVector::GetData<duckdb::string_t>(verify_chunk->data[0]);
+        for (size_t i = 0; i < verify_chunk->size(); i++) {
+            std::string table_name = table_names[i].GetString();
+            std::cout << " - " << table_name << std::endl;
+            if (table_name == "results") {
+                found_results_table = true;
+            }
+        }
+        verify_chunk = verify_result->Fetch();
+    }
+
+    if (!found_results_table) {
+        std::cerr << "Results table was not created successfully" << std::endl;
+        return false;
+    }
+
+    std::cout << "Results table created successfully" << std::endl;
+
+    return found_results_table;
+}
+
+vector<string> find_datasets(Connection &con, const string &data_dir) {
+    vector<string> datasets;
+    const auto files_result = con.Query("SELECT file FROM glob('" + data_dir + "/**/*.parquet')");
+    try {
+        auto files_chunk = files_result->Fetch();
+        while (files_chunk) {
+            auto file_names = duckdb::FlatVector::GetData<duckdb::string_t>(files_chunk->data[0]);
+            for (size_t i = 0; i < files_chunk->size(); i++) {
+                datasets.push_back(file_names[i].GetString());
+            }
+            files_chunk = files_result->Fetch();
+        }
+    } catch (std::exception& e) {
+        std::cerr << "Failed to list parquet files: " << e.what() << std::endl;
+        throw std::logic_error("Failed to list parquet files");
+    }
+    return datasets;
+}
+
+vector<string> GetColumnNames(const unique_ptr<MaterializedQueryResult> &columns_result) {
+    auto columns_chunk = columns_result->Fetch();
+    vector<string> column_names;
+    while (columns_chunk) {
+        auto column_data = duckdb::FlatVector::GetData<duckdb::string_t>(columns_chunk->data[0]);
+        for (size_t i = 0; i < columns_chunk->size(); i++) {
+            column_names.push_back(column_data[i].GetString());
+        }
+        columns_chunk = columns_result->Fetch();
+    }
+    return column_names;
+}
+
+bool ColumnIsStringType(Connection &con, const string &column_name) {
+    const auto column_type_result = con.Query("SELECT data_type FROM duckdb_columns() WHERE table_name = 'temp_view' AND column_name = '" + column_name + "'");
+    const auto column_type_chunk = column_type_result->Fetch();
+    if (column_type_chunk) {
+        const string type = duckdb::FlatVector::GetData<duckdb::string_t>(column_type_chunk->data[0])[0].GetString();
+        if (type.find("VARCHAR") == string::npos && type.find("STRING") == string::npos) {
+            std::cout << "Skipping non-string column: " << column_name << " (type: " << type << ")" << std::endl;
+            return false;
+        }
+    }
+    return true;
+}
+
 int main() {
     // Define project directory
     string project_dir = "/export/scratch2/home/yla/fsst-plus-experiments";
@@ -194,103 +302,23 @@ int main() {
     DuckDB db(db_path);
     Connection con(db);
     
-    // Begin transaction
-    con.Query("BEGIN TRANSACTION");
-    
-    // Create a results table to store benchmarks
-    const string create_results_table =
-        "CREATE TABLE results ("
-        "dataset VARCHAR, "
-        "col_name VARCHAR, "
-        "algo VARCHAR, "
-        "amount_of_rows BIGINT, "
-        "run_time_ms DOUBLE, "
-        "compression_factor DOUBLE, "
-        "num_strings BIGINT, "
-        "original_size BIGINT"
-        ");";
-    
-    try {
-        con.Query(create_results_table);
-        
-        // Commit the transaction to persist the table
-        con.Query("COMMIT");
-    } catch (std::exception& e) {
-        con.Query("ROLLBACK");
-        std::cerr << "Failed to create results table: " << e.what() << std::endl;
-        return 1;
-    }
-    
-    // Verify the table was created (after commit)
-    auto verify_result = con.Query("SHOW TABLES");
-    auto verify_chunk = verify_result->Fetch();
-    bool found_results_table = false;
-    
-    while (verify_chunk) {
-        // Only access columns that exist
-        size_t num_cols = verify_chunk->data.size();
-        if (num_cols == 0) {
-            std::cerr << "SHOW TABLES returned no columns" << std::endl;
-            break;
-        }
-        
-        // Use the first column as it contains the table name in this case
-        auto table_names = duckdb::FlatVector::GetData<duckdb::string_t>(verify_chunk->data[0]);
-        for (size_t i = 0; i < verify_chunk->size(); i++) {
-            std::string table_name = table_names[i].GetString();
-            std::cout << " - " << table_name << std::endl;
-            if (table_name == "results") {
-                found_results_table = true;
-            }
-        }
-        verify_chunk = verify_result->Fetch();
-    }
-    
-    if (!found_results_table) {
-        std::cerr << "Results table was not created successfully" << std::endl;
-        return 1;
-    } else {
-        std::cout << "Results table created successfully" << std::endl;
-    }
+    if (!create_results_table(con)) return 1;
     
     // List all datasets in the refined directory
     string data_dir = project_dir + "/benchmarking/data/refined";
-    vector<string> datasets;
-    auto files_result = con.Query("SELECT file FROM glob('" + data_dir + "/**/*.parquet')");
-    try {
-        auto files_chunk = files_result->Fetch();
-        while (files_chunk) {
-            auto file_names = duckdb::FlatVector::GetData<duckdb::string_t>(files_chunk->data[0]);
-            for (size_t i = 0; i < files_chunk->size(); i++) {
-                datasets.push_back(file_names[i].GetString());
-            }
-            files_chunk = files_result->Fetch();
-        }
-    } catch (std::exception& e) {
-        std::cerr << "Failed to list parquet files: " << e.what() << std::endl;
-        return 1;
-    }
+    vector<string> datasets = find_datasets(con, data_dir);
     
     // For each dataset
     for (const auto& dataset_path : datasets) {
         // Extract dataset name from path
-        string dataset_name = dataset_path.substr(dataset_path.find_last_of("/") + 1);
-        dataset_name = dataset_name.substr(0, dataset_name.find_last_of("."));
-        
+        string dataset_name = dataset_path.substr(dataset_path.find_last_of("/") + 1).substr(0, dataset_name.find_last_of("."));
+
         // Get columns from dataset
         con.Query("CREATE OR REPLACE VIEW temp_view AS SELECT * FROM read_parquet('" + dataset_path + "')");
         auto columns_result = con.Query("SELECT column_name FROM duckdb_columns() WHERE table_name = 'temp_view'");
         
         try {
-            auto columns_chunk = columns_result->Fetch();
-            vector<string> column_names;
-            while (columns_chunk) {
-                auto column_data = duckdb::FlatVector::GetData<duckdb::string_t>(columns_chunk->data[0]);
-                for (size_t i = 0; i < columns_chunk->size(); i++) {
-                    column_names.push_back(column_data[i].GetString());
-                }
-                columns_chunk = columns_result->Fetch();
-            }
+            vector<string> column_names = GetColumnNames(columns_result);
             
             // For each column
             for (const auto& column_name : column_names) {
@@ -307,20 +335,12 @@ int main() {
                     "LIMIT " + std::to_string(config::total_strings) + ";";
                 
                 // Skip non-string columns
-                auto column_type_result = con.Query("SELECT data_type FROM duckdb_columns() WHERE table_name = 'temp_view' AND column_name = '" + column_name + "'");
-                auto column_type_chunk = column_type_result->Fetch();
-                if (column_type_chunk) {
-                    string type = duckdb::FlatVector::GetData<duckdb::string_t>(column_type_chunk->data[0])[0].GetString();
-                    if (type.find("VARCHAR") == string::npos && type.find("STRING") == string::npos) {
-                        std::cout << "Skipping non-string column: " << column_name << " (type: " << type << ")" << std::endl;
-                        continue;
-                    }
+                if (!ColumnIsStringType(con, column_name)) {
+                    continue;
                 }
                 
                 try {
-                    // Start timing
-                    auto start_time = std::chrono::high_resolution_clock::now();
-                    
+
                     std::cout 
                     // <<"===============================================\n" 
                     <<"==========START BASIC FSST COMPRESSION=========\n"; 
@@ -329,7 +349,8 @@ int main() {
                     // Run Basic FSST for comparison
                     global::algo = "basic_fsst";
                     RunBasicFSST(con, query);
-                    
+
+
                     // Now run FSST Plus
                     global::algo = "fsst_plus";
                     const auto result = con.Query(query);
@@ -340,7 +361,10 @@ int main() {
                         std::cout << "No data for column: " << column_name << std::endl;
                         continue;
                     }
-                    
+
+                    // Start timing
+                    auto start_time = std::chrono::high_resolution_clock::now();
+
                     const size_t n = std::min(config::amount_strings_per_symbol_table, static_cast<size_t>(result->RowCount()));
                     
                     StringCollection input = RetrieveData(result, data_chunk, n);
