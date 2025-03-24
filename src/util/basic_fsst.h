@@ -11,6 +11,7 @@ struct FSSTCompressionResult {
     fsst_encoder_t *encoder;
     std::vector<size_t> encoded_strings_length;
     std::vector<unsigned char *> encoded_strings;
+    unsigned char *output_buffer;
 };
 
 inline fsst_encoder_t *CreateEncoder(const std::vector<size_t> &lenIn, std::vector<const unsigned char *> &strIn) {
@@ -68,10 +69,7 @@ inline void RunBasicFSST(duckdb::Connection &con, const std::string &query) {
     size_t total_strings_amount = {0};
     size_t total_string_size = {0};
     size_t total_compressed_string_size = {0};
-    std::cout <<
-            "===============================================\n" <<
-            "==========START BASIC FSST COMPRESSION=========\n" <<
-            "===============================================\n";
+
     while (data_chunk) {
         const size_t n = data_chunk->size();
 
@@ -100,7 +98,7 @@ inline void RunBasicFSST(duckdb::Connection &con, const std::string &query) {
         for (auto len: lenIn) max_out_size += 2 * len;
 
         // Allocate output buffer
-        unsigned char *output = static_cast<unsigned char *>(malloc(max_out_size));
+        unsigned char *output = static_cast<unsigned char *>(malloc(max_out_size*2)); //TODO: *2 Shouldnt be needed but segfault otherwise
 
         /* =============================================
          * ================ COMPRESSION ================
@@ -155,7 +153,9 @@ inline void RunBasicFSST(duckdb::Connection &con, const std::string &query) {
                                global::algo + "', " +
                                std::to_string(global::amount_of_rows) + ", " +
                                std::to_string(global::run_time_ms) + ", " +
-                               std::to_string(global::compression_factor) + ");";
+                               std::to_string(global::compression_factor) + ", " +
+                               std::to_string(total_strings_amount) + ", " +
+                               std::to_string(total_string_size) + ");";
         
     try {
         con.Query(insert_query);
@@ -200,7 +200,7 @@ inline FSSTCompressionResult FSSTCompress(StringCollection &input) {
     // fsst_decoder_t decoder = fsst_decoder(encoder);
     // print_decoder_symbol_table(decoder);
 
-    return FSSTCompressionResult{encoder, lenOut, strOut};
+    return FSSTCompressionResult{encoder, lenOut, strOut, output};
 }
 
 inline size_t CalcEncodedStringsSize(const FSSTCompressionResult &compression_result) {

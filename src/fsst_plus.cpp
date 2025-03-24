@@ -50,7 +50,7 @@ std::vector<const unsigned char *> &strIn) {
 }
 
 StringCollection RetrieveData(const unique_ptr<MaterializedQueryResult> &result, unique_ptr<DataChunk> &data_chunk, const size_t &n) {
-    std::cout << "🔷 " << n << " strings for this symbol table 🔷 \n";
+    // std::cout << "🔷 " << n << " strings for this symbol table 🔷 \n";
 
     StringCollection input(n);
 
@@ -74,7 +74,7 @@ std::vector<SimilarityChunk> FormSimilarityChunks(const size_t &n, StringCollect
     for (size_t i = 0; i < n; i += config::block_granularity) {
         const size_t cleaving_run_n = std::min(input.lengths.size() - i, config::block_granularity);
 
-        std::cout << "Current Cleaving Run coverage: " << i << ":" << i + cleaving_run_n - 1 << std::endl;
+        // std::cout << "Current Cleaving Run coverage: " << i << ":" << i + cleaving_run_n - 1 << std::endl;
 
         TruncatedSort(input.lengths, input.string_ptrs, i, cleaving_run_n);
 
@@ -168,20 +168,25 @@ FSSTPlusCompressionResult FSSTPlusCompress(const size_t n, std::vector<Similarit
         next_block_start_ptr = WriteBlock(next_block_start_ptr, prefix_compression_result, suffix_compression_result, wm);
     }
 
+    // Cleanup
+    free(prefix_compression_result.output_buffer);
+    free(suffix_compression_result.output_buffer);
+
     compression_result.data_end = next_block_start_ptr;
     return compression_result;
 }
 
 int main() {
     // Define project directory
-    string project_dir = "~/fsst-plus-experiments/";
+    string project_dir = "/export/scratch2/home/yla/fsst-plus-experiments";
+    // string project_dir = "~/fsst-plus-experiments/";
     // string project_dir = "/Users/yanlannaalexandre/_DA_REPOS/fsst-plus-experiments";
 
     // Create a persistent database connection
-    string db_path = project_dir + "/data/benchmark.db";
+    string db_path = project_dir + "/benchmarking/results/benchmark.db";
     
     // Ensure the data directory exists using system commands
-    system(("mkdir -p " + project_dir + "/data").c_str());
+    system(("mkdir -p " + project_dir + "benchmarking/data").c_str());
     
     // Remove any existing database file to start fresh
     system(("rm -f " + db_path).c_str());
@@ -200,7 +205,9 @@ int main() {
         "algo VARCHAR, "
         "amount_of_rows BIGINT, "
         "run_time_ms DOUBLE, "
-        "compression_factor DOUBLE"
+        "compression_factor DOUBLE, "
+        "num_strings BIGINT, "
+        "original_size BIGINT"
         ");";
     
     try {
@@ -219,7 +226,6 @@ int main() {
     auto verify_chunk = verify_result->Fetch();
     bool found_results_table = false;
     
-    std::cout << "Available tables after creation: " << std::endl;
     while (verify_chunk) {
         // Only access columns that exist
         size_t num_cols = verify_chunk->data.size();
@@ -248,9 +254,9 @@ int main() {
     }
     
     // List all datasets in the refined directory
-    string data_dir = project_dir + "/data/refined";
+    string data_dir = project_dir + "/benchmarking/data/refined";
     vector<string> datasets;
-    auto files_result = con.Query("SELECT file FROM glob('" + data_dir + "/*.parquet')");
+    auto files_result = con.Query("SELECT file FROM glob('" + data_dir + "/**/*.parquet')");
     try {
         auto files_chunk = files_result->Fetch();
         while (files_chunk) {
@@ -315,6 +321,11 @@ int main() {
                     // Start timing
                     auto start_time = std::chrono::high_resolution_clock::now();
                     
+                    std::cout 
+                    // <<"===============================================\n" 
+                    <<"==========START BASIC FSST COMPRESSION=========\n"; 
+                    // <<"===============================================\n";
+
                     // Run Basic FSST for comparison
                     global::algo = "basic_fsst";
                     RunBasicFSST(con, query);
@@ -334,9 +345,10 @@ int main() {
                     
                     StringCollection input = RetrieveData(result, data_chunk, n);
                     
-                    std::cout << "===============================================\n" <<
-                            "==========START FSST PLUS COMPRESSION==========\n" <<
-                            "===============================================\n";
+                    std::cout 
+                    // << "===============================================\n" 
+                    <<"==========START FSST PLUS COMPRESSION==========\n";
+                    // << "===============================================\n";
                     
                     const std::vector<SimilarityChunk> similarity_chunks = FormSimilarityChunks(n, input);
                     
@@ -365,7 +377,9 @@ int main() {
                         global::algo + "', " + 
                         std::to_string(global::amount_of_rows) + ", " + 
                         std::to_string(global::run_time_ms) + ", " + 
-                        std::to_string(global::compression_factor) + ");";
+                        std::to_string(global::compression_factor) + ", " + 
+                        std::to_string(n) + ", " + 
+                        std::to_string(input_size) + ");";
                     
                     try {
                         con.Query(insert_query);
@@ -377,6 +391,7 @@ int main() {
                     // Cleanup
                     fsst_destroy(compression_result.prefix_encoder);
                     fsst_destroy(compression_result.suffix_encoder);
+                    delete[] compression_result.data_start;
                 } catch (std::exception& e) {
                     std::cerr << "Error processing " << dataset_name << "." << column_name << ": " << e.what() << std::endl;
                 }
@@ -433,13 +448,13 @@ int main() {
         }
         
         // Save results to parquet file
-        string save_query = "COPY results TO '" + project_dir + "/data/results.parquet' (FORMAT 'parquet')";
+        string save_query = "COPY results TO '" + project_dir + "/benchmarking/results/results.parquet' (FORMAT 'parquet', OVERWRITE TRUE)";
         con.Query(save_query);
         
         // Verify the file was created
-        std::ifstream file_check((project_dir + "/data/results.parquet").c_str());
+        std::ifstream file_check((project_dir + "/benchmarking/results/results.parquet").c_str());
         if (file_check.good()) {
-            std::cout << "Results saved to " << project_dir << "/data/results.parquet" << std::endl;
+            std::cout << "Results saved to " << project_dir << "/benchmarking/results/results.parquet" << std::endl;
         } else {
             std::cerr << "Warning: Results file not found after save operation" << std::endl;
         }
