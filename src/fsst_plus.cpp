@@ -31,8 +31,9 @@ uint8_t *FindBlockStart(uint8_t *block_start_offsets, const int i) {
 
 void DecompressAll(uint8_t *global_header, const fsst_decoder_t &prefix_decoder,
 const fsst_decoder_t &suffix_decoder,
-std::vector<size_t> &lenIn,
-std::vector<const unsigned char *> &strIn) {
+const std::vector<size_t> &lengths_original,
+const std::vector<const unsigned char *> &string_ptrs_original
+) {
     global::global_index = 0; // Reset global index before decompression
     uint16_t num_blocks = Load<uint16_t>(global_header);
     uint8_t *block_start_offsets = global_header + sizeof(uint16_t);
@@ -45,7 +46,7 @@ std::vector<const unsigned char *> &strIn) {
          */
         const uint8_t *block_stop = FindBlockStart(block_start_offsets, i + 1);
 
-        DecompressBlock(block_start, prefix_decoder, suffix_decoder, block_stop, lenIn, strIn);
+        DecompressBlock(block_start, prefix_decoder, suffix_decoder, block_stop, lengths_original, string_ptrs_original);
     }
 }
 
@@ -88,7 +89,7 @@ std::vector<SimilarityChunk> FormSimilarityChunks(const size_t &n, StringCollect
 }
 
 FSSTPlusCompressionResult FSSTPlusCompress(const size_t n, std::vector<SimilarityChunk> similarity_chunks, CleavedResult cleaved_result) {
-    FSSTPlusCompressionResult compression_result;
+    FSSTPlusCompressionResult compression_result{};
 
     FSSTCompressionResult prefix_compression_result = FSSTCompress(cleaved_result.prefixes);
     compression_result.prefix_encoder = prefix_compression_result.encoder;
@@ -328,7 +329,8 @@ int main() {
             
             // For each column
             for (const auto& column_name : column_names) {
-                std::cout << "\n> Processing dataset: " << dataset_name << ", column: " << column_name << std::endl;
+
+                std::cout << "\n🟡> Processing dataset: " << dataset_name << ", column: " << column_name << std::endl;
                 // Skip this column if it's not string
                 if (!ColumnIsStringType(con, column_name)) {
                     std::cerr<<"Refined column is not string time. This should not happen as refinement should deal with that. Terminating";
@@ -347,51 +349,55 @@ int main() {
                 
                 try {
 
-                    std::cout 
-                    // <<"===============================================\n" 
-                    <<"==========START BASIC FSST COMPRESSION=========\n"; 
-                    // <<"===============================================\n";
-
-                    // Run Basic FSST for comparison
-                    global::algo = "basic_fsst";
-                    RunBasicFSST(con, query);
-
-
-                    // Now run FSST Plus
-                    global::algo = "fsst_plus";
                     const auto result = con.Query(query);
                     global::amount_of_rows = result->RowCount();
-                    
+
                     auto data_chunk = result->Fetch();
                     if (!data_chunk || data_chunk->size() == 0) {
                         std::cout << "No data for column: " << column_name << std::endl;
                         continue;
                     }
 
-                    // Start timing
-                    auto start_time = std::chrono::high_resolution_clock::now();
+
 
                     const size_t n = std::min(config::amount_strings_per_symbol_table, static_cast<size_t>(result->RowCount()));
                     
-                    StringCollection input = RetrieveData(result, data_chunk, n);
-                    
-                    std::cout 
+                    StringCollection input = RetrieveData(result, data_chunk, n); // 100k rows
+
+                    // Run Basic FSST for comparison
+                    std::cout
+                    // <<"===============================================\n"
+                    <<"==========START BASIC FSST COMPRESSION=========\n";
+                    // <<"===============================================\n";
+                    global::algo = "basic_fsst";
+
+                    RunBasicFSST(con, input);
+
+
+                    // Now run FSST Plus
+                    std::cout
                     // << "===============================================\n" 
                     <<"==========START FSST PLUS COMPRESSION==========\n";
                     // << "===============================================\n";
-                    
+                    global::algo = "fsst_plus";
+
+                    // Start timing
+                    auto start_time = std::chrono::high_resolution_clock::now();
+
                     const std::vector<SimilarityChunk> similarity_chunks = FormSimilarityChunks(n, input);
                     
                     const CleavedResult cleaved_result = Cleave(input.lengths, input.string_ptrs, similarity_chunks, n);
                     
                     const FSSTPlusCompressionResult compression_result = FSSTPlusCompress(n, similarity_chunks, cleaved_result);
-                    
+
+                    // End timing
+                    auto end_time = std::chrono::high_resolution_clock::now();
+
                     // decompress to check all went well
                     DecompressAll(compression_result.data_start, fsst_decoder(compression_result.prefix_encoder),
                                 fsst_decoder(compression_result.suffix_encoder), input.lengths, input.string_ptrs);
                     
-                    // End timing
-                    auto end_time = std::chrono::high_resolution_clock::now();
+
                     global::run_time_ms = std::chrono::duration<double, std::milli>(end_time - start_time).count();
                     
                     size_t input_size = CalculateInputSize(input);

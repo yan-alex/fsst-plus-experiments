@@ -4,6 +4,7 @@
 #include <string>
 
 #include "duckdb.hpp"
+#include "duckdb_utils.h"
 #include <string>
 #include <chrono>
 #include "../global.h"
@@ -76,90 +77,99 @@ inline void ExtractStringsFromResultChunk(const duckdb::unique_ptr<duckdb::DataC
     }
 };
 
+inline void VerifyDecompressionCorrectness(const std::vector<std::string> & data, const std::vector<size_t> & lengths, const std::vector<size_t> & len_out, const std::vector<unsigned char *> & str_out, size_t num_compressed,
+                                           const fsst_decoder_t & decoder) {
+    if (num_compressed != data.size()) {
+        throw std::logic_error("Basic FSST compressed size is not equal to input size ");
+    }
+    for (size_t i = 0; i < num_compressed; i++) {
+        // Allocate decompression buffer
+        auto* decompressed = static_cast<unsigned char*>(malloc(lengths[i]));
+
+        size_t decompressed_size = fsst_decompress(
+            &decoder, /* IN: use this symbol table for compression. */
+            len_out[i],  /* IN: byte-length of compressed string. */
+            str_out[i], /* IN: compressed string. */
+            lengths[i], /* IN: byte-length of output buffer. */
+            decompressed /* OUT: memory buffer to put the decompressed string in. */
+        );
+        const std::string_view decompressed_view(reinterpret_cast<char*>(decompressed), decompressed_size);
+        // Verify decompression
+        if (decompressed_size != lengths[i] ||
+            decompressed_view != data[i]) {
+            std::cerr << "Decompression mismatch for string " << i <<" Expected: "<< data[i] <<" Got: " << decompressed_view <<std::endl;
+            throw std::logic_error("Decompression mismatch detected. Terminating.");
+            }
+    }
+    std::cout << "\nDecompression successful\n";
+};
+
 // Declaration for the function that runs basic FSST compression and prints its results, using the provided DuckDB connection, parquet file path, and limit.
-inline void RunBasicFSST(duckdb::Connection &con, const std::string &query) {
+inline void RunBasicFSST(duckdb::Connection &con, StringCollection &input) {
     auto start_time = std::chrono::high_resolution_clock::now();
     
-    const auto result = con.Query(query);
-    auto data_chunk = result->Fetch();
 
-    global::amount_of_rows = result->RowCount();
+    global::amount_of_rows = input.data.size();
     
     size_t total_strings_amount = {0};
     size_t total_string_size = {0};
     size_t total_compressed_string_size = {0};
 
-    while (data_chunk) {
-        const size_t n = data_chunk->size();
 
-        // std::cout << "🔷 " << n << " strings in DataChunk 🔷\n";
+    // Create FSST encoder
+    fsst_encoder_t *encoder = CreateEncoder(input.lengths, input.string_ptrs);
 
-        std::vector<std::string> original_strings;
-        original_strings.reserve(n);
+    // Compression outputs
+    std::vector<size_t> lenOut(input.lengths.size());
+    std::vector<unsigned char *> strOut(input.lengths.size());
 
-        std::vector<size_t> lenIn;
-        lenIn.reserve(n);
+    // Calculate worst-case output size (2*input)
+    size_t max_out_size = 0;
+    for (auto len: input.lengths) max_out_size += 2 * len;
 
-        std::vector<const unsigned char *> strIn;
-        strIn.reserve(n);
-        // Populate lenIn and strIn
-        ExtractStringsFromResultChunk(data_chunk, original_strings, lenIn, strIn);
+    // Allocate output buffer
+    unsigned char *output = static_cast<unsigned char *>(malloc(max_out_size*2)); //TODO: *2 Shouldnt be needed but segfault otherwise
 
-        // Create FSST encoder
-        fsst_encoder_t *encoder = CreateEncoder(lenIn, strIn);
+    /* =============================================
+     * ================ COMPRESSION ================
+     * ===========================================*/
 
-        // Compression outputs
-        std::vector<size_t> lenOut(lenIn.size());
-        std::vector<unsigned char *> strOut(lenIn.size());
+    // Perform compression
+    size_t num_compressed = fsst_compress(
+        encoder, /* IN: encoder obtained from fsst_create(). */
+        input.lengths.size(), /* IN: number of strings in batch to compress. */
+        input.lengths.data(), /* IN: byte-lengths of the inputs */
+        input.string_ptrs.data(), /* IN: input string start pointers. */
+        max_out_size, /* IN: byte-length of output buffer. */
+        output, /* OUT: memory buffer to put the compressed strings in (one after the other). */
+        lenOut.data(), /* OUT: byte-lengths of the compressed strings. */
+        strOut.data() /* OUT: output string start pointers. */
+    );
 
-        // Calculate worst-case output size (2*input)
-        size_t max_out_size = 0;
-        for (auto len: lenIn) max_out_size += 2 * len;
-
-        // Allocate output buffer
-        unsigned char *output = static_cast<unsigned char *>(malloc(max_out_size*2)); //TODO: *2 Shouldnt be needed but segfault otherwise
-
-        /* =============================================
-         * ================ COMPRESSION ================
-         * ===========================================*/
-
-        // Perform compression
-        size_t num_compressed = fsst_compress(
-            encoder, /* IN: encoder obtained from fsst_create(). */
-            lenIn.size(), /* IN: number of strings in batch to compress. */
-            lenIn.data(), /* IN: byte-lengths of the inputs */
-            strIn.data(), /* IN: input string start pointers. */
-            max_out_size, /* IN: byte-length of output buffer. */
-            output, /* OUT: memory buffer to put the compressed strings in (one after the other). */
-            lenOut.data(), /* OUT: byte-lengths of the compressed strings. */
-            strOut.data() /* OUT: output string start pointers. */
-        );
-
-        /* =============================================
-         * =============== DECOMPRESSION ===============
-         * ===========================================*/
-
-        // fsst_decoder_t decoder = fsst_decoder(encoder);
-        // verify_decompression_correctness(original_strings, lenIn, lenOut, strOut, num_compressed, decoder);
-
-        for (size_t compressed_string_length: lenOut) {
-            total_compressed_string_size += compressed_string_length;
-        }
-        total_compressed_string_size += CalcSymbolTableSize(encoder);
-        total_strings_amount += lenIn.size();
-        for (const size_t string_length: lenIn) {
-            total_string_size += string_length;
-        }
-        
-        // Free FSST encoder and output buffer for this batch
-        fsst_destroy(encoder);
-        free(output);
-
-        // Get the next chunk, continue loop
-        data_chunk = result->Fetch();
-    }
-    
     auto end_time = std::chrono::high_resolution_clock::now();
+
+
+    /* =============================================
+     * =============== DECOMPRESSION ===============
+     * ===========================================*/
+
+    // fsst_decoder_t decoder = fsst_decoder(encoder);
+    VerifyDecompressionCorrectness(input.data, input.lengths, lenOut, strOut, num_compressed, fsst_decoder(encoder));
+
+    for (size_t compressed_string_length: lenOut) {
+        total_compressed_string_size += compressed_string_length;
+    }
+    total_compressed_string_size += CalcSymbolTableSize(encoder);
+    total_strings_amount += input.lengths.size();
+    for (const size_t string_length: input.lengths) {
+        total_string_size += string_length;
+    }
+
+    // Free FSST encoder and output buffer for this batch
+    fsst_destroy(encoder);
+    free(output);
+
+    
     global::run_time_ms = std::chrono::duration<double, std::milli>(end_time - start_time).count();
     global::compression_factor = static_cast<double>(total_string_size) / total_compressed_string_size;
     
@@ -195,7 +205,7 @@ inline FSSTCompressionResult FSSTCompress(StringCollection &input) {
     // Calculate worst-case output size (2 * input)
 
     // size_t max_out_size = 7; // TODO: SHOULD BE 0 but that gives errors when running w 5 strings for some reason
-    // for (auto len: lenIn)
+    // for (auto len: input.lengths)
     //     max_out_size += 2 * len;
 
     size_t max_out_size = 120000*1000;
@@ -214,7 +224,7 @@ inline FSSTCompressionResult FSSTCompress(StringCollection &input) {
         strOut.data() /* OUT: output string start pointers. Will all point into [output,output+size). */
     );
 
-    // print_compressed_strings(lenIn, strIn, lenOut, strOut, num_compressed);
+    // print_compressed_strings(input.lengths, strIn, lenOut, strOut, num_compressed);
 
     // fsst_decoder_t decoder = fsst_decoder(encoder);
     // print_decoder_symbol_table(decoder);

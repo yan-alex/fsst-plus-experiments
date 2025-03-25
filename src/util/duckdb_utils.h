@@ -12,16 +12,26 @@ inline void ExtractStringsFromDataChunk(const unique_ptr<DataChunk> &data_chunk,
                                             std::vector<const unsigned char *> &string_ptrs) {
     auto &vector = data_chunk->data[0];
     const auto vector_data = FlatVector::GetData<string_t>(vector);
+    auto &validity = FlatVector::Validity(vector);  // Get validity mask
 
     // Populate lenIn and strIn
     for (size_t i = 0; i < data_chunk->size(); i++) {
-        std::string str = vector_data[i].GetString();
+        if (!validity.RowIsValid(i)) {
+            // Handle NULL case
+            data.push_back("");
+            const std::string &stored_str = data.back();
+            lengths.push_back(0);
+            string_ptrs.push_back(reinterpret_cast<const unsigned char *>(stored_str.c_str()));
 
-        data.push_back(str);
-        const std::string &stored_str = data.back();
-        // Creates a reference to the string that was just added to the vector.
-        lengths.push_back(stored_str.size());
-        string_ptrs.push_back(reinterpret_cast<const unsigned char *>(stored_str.c_str()));
-        // c_str() returns a pointer to the internal character array, which is a temporary array owned by the string object.
+        } else {
+            std::string str = vector_data[i].GetString();
+
+            data.push_back(str);
+            const std::string &stored_str = data.back();
+            // Creates a reference to the string that was just added to the vector.
+            lengths.push_back(stored_str.size());
+            string_ptrs.push_back(reinterpret_cast<const unsigned char *>(stored_str.c_str()));
+            // c_str() returns a pointer to the internal character array, which is a temporary array owned by the string object.
+        }
     }
 }
