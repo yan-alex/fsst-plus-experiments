@@ -8,7 +8,7 @@ def refine_dataset(input_path: PurePath, output_path: PurePath):
     """Process a single Parquet file using the refinement logic"""
     df = pl.read_parquet(str(input_path))
     
-    # Text column selection criteria
+    # Text column selection craiteria
     text_columns = [
         col for col in df.columns
         if (df[col].dtype == pl.String and
@@ -30,7 +30,7 @@ def refine_dataset(input_path: PurePath, output_path: PurePath):
         print(f"❌ No columns found in {str(input_path)} that match the criteria. Skipping file.")
         return False
 
-def process_raw_directory(raw_dir: str = "../../../data/raw", output_dir: str = "../../../data/refined"):
+def process_raw_directory(raw_dir: str = "../../data/raw", output_dir: str = "../../data/refined"):
     """Process all Parquet files in the raw directory and its subdirectories"""
     raw_path = Path(raw_dir)
     output_path = Path(output_dir)

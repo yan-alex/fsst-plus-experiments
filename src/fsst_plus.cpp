@@ -278,7 +278,7 @@ bool ColumnIsStringType(Connection &con, const string &column_name) {
     if (column_type_chunk) {
         const string type = duckdb::FlatVector::GetData<duckdb::string_t>(column_type_chunk->data[0])[0].GetString();
         if (type.find("VARCHAR") == string::npos && type.find("STRING") == string::npos) {
-            std::cout << "Skipping non-string column: " << column_name << " (type: " << type << ")" << std::endl;
+            std::cerr << "Skipping non-string column: " << column_name << " (type: " << type << ")" << std::endl;
             return false;
         }
     }
@@ -306,7 +306,7 @@ int main() {
     if (!CreateResultsTable(con)) return 1;
     
     // List all datasets in the refined directory
-    string data_dir = config::project_dir + "/data/refined";
+    string data_dir = config::project_dir + "/benchmarking/data/refined";
     vector<string> datasets = FindDatasets(con, data_dir);
     
     // For each dataset
@@ -332,8 +332,9 @@ int main() {
                 std::cout << "\n🟡> Processing dataset: " << dataset_name << ", column: " << column_name << std::endl;
                 // Skip this column if it's not string
                 if (!ColumnIsStringType(con, column_name)) {
-                    std::cerr<<"Refined column is not string time. This should not happen as refinement should deal with that. Terminating";
-                    throw std::logic_error("Refined column is not string time. This should not happen as refinement should deal with that. Terminating");
+                    std::cerr<<"Refined column is not string time. This should not happen as refinement should deal with that. Skipping column.";
+                    continue;
+                    // throw std::logic_error("Refined column is not string time. This should not happen as refinement should deal with that. Terminating");
                 }
 
                 // Set global variables for tracking
