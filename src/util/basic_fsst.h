@@ -79,7 +79,7 @@ inline void VerifyDecompressionCorrectness(const StringCollection &input, const 
             &decoder, /* IN: use this symbol table for compression. */
             encoded_string_lengths[i],  /* IN: byte-length of compressed string. */
             encoded_string_ptrs[i], /* IN: compressed string. */
-            input.lengths[i], /* IN: byte-length of output buffer. */
+            BUFFER_SIZE, /* IN: byte-length of output buffer. */
             result /* OUT: memory buffer to put the decompressed string in. */
         );
         // const std::string_view decompressed_view(reinterpret_cast<char*>(decompressed), decompressed_size);
