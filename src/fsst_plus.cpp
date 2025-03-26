@@ -312,7 +312,6 @@ int main() {
     // For each dataset
     for (const auto& dataset_path : datasets) {
 
-
         // Extract dataset name from path
         string substring = dataset_path.substr(dataset_path.find_last_of("/") + 1);
         string dataset_name = substring.substr(0, substring.find_last_of('.'));
@@ -430,10 +429,12 @@ int main() {
                     delete[] compression_result.data_start;
                 } catch (std::exception& e) {
                     std::cerr << "Error processing " << dataset_name << "." << column_name << ": " << e.what() << std::endl;
+                    return 1;
                 }
             }
         } catch (std::exception& e) {
             std::cerr << "Failed to get columns for " << dataset_name << ": " << e.what() << std::endl;
+            return 1;
         }
     }
     

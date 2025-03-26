@@ -5,6 +5,25 @@
 #include "cleaving_types.h"
 #include <vector>
 
+inline bool TextMatches(const unsigned char *result, const unsigned char *original, const size_t &size) {
+    for (int i = 0; i < size; ++i) {
+        if (result[i] != original[i]) {
+            std::cout<<"MISMATCH: "<<"result["<<i<<"]: "<<result[i] << "original["<<i<<"]: "<< original[i]<< "\n";
+            for (int i = 0; i < size; ++i) {
+                std::cout << result[i];
+            }
+            std::cout<<"\n";
+            for (int i = 0; i < size; ++i) {
+                std::cout << original[i];
+            }
+            std::cout<<"\n";
+
+            return false;
+        }
+    }
+    return true;
+}
+
 inline size_t FindSimilarityChunkCorrespondingToIndex(const size_t &target_index,
                                                            const std::vector<SimilarityChunk> &similarity_chunks) {
     // Handle empty or single chunk case

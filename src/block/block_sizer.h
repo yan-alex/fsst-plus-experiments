@@ -10,7 +10,7 @@ inline bool TryAddPrefix(BlockSizingMetadata &sm,
                          BlockWritingMetadata &wm,
                          const FSSTCompressionResult &prefix_compression_result,
                          const size_t prefix_index_for_suffix) {
-    const size_t prefix_size = prefix_compression_result.encoded_strings_length[prefix_index_for_suffix];
+    const size_t prefix_size = prefix_compression_result.encoded_string_lengths[prefix_index_for_suffix];
     if (sm.block_size + prefix_size >= config::block_byte_capacity) {
         return false;
     }
@@ -25,7 +25,7 @@ inline bool TryAddPrefix(BlockSizingMetadata &sm,
 inline size_t CalculateSuffixPlusHeaderSize(const FSSTCompressionResult &suffix_compression_result,
                                   const std::vector<SimilarityChunk> &similarity_chunks,
                                   const size_t suffix_index) {
-    const size_t suffix_encoded_length = suffix_compression_result.encoded_strings_length[suffix_index];
+    const size_t suffix_encoded_length = suffix_compression_result.encoded_string_lengths[suffix_index];
     constexpr size_t prefix_length_byte = sizeof(uint8_t);
     const bool suffix_has_prefix = (similarity_chunks[FindSimilarityChunkCorrespondingToIndex(
                                 suffix_index, similarity_chunks
@@ -56,7 +56,7 @@ inline size_t CalculateBlockSizeAndPopulateWritingMetadata(const std::vector<Sim
     sm.block_size += sizeof(uint8_t);
 
     // Try to fit as many suffixes as possible, up to 128
-    size_t strings_to_go = suffix_compression_result.encoded_strings.size() - suffix_area_start_index;
+    size_t strings_to_go = suffix_compression_result.encoded_string_ptrs.size() - suffix_area_start_index;
     while (wm.suffix_n_in_block < std::min(strings_to_go, config::block_granularity)) {
         const size_t suffix_index = suffix_area_start_index + wm.suffix_n_in_block; // starts at 0
         const size_t prefix_index_for_suffix =
@@ -85,7 +85,7 @@ inline size_t CalculateBlockSizeAndPopulateWritingMetadata(const std::vector<Sim
         // Update suffix metadata
         wm.suffix_offsets_from_first_suffix[wm.suffix_n_in_block] = sm.suffix_offset_current;
         wm.suffix_encoded_prefix_lengths[wm.suffix_n_in_block] =
-            prefix_compression_result.encoded_strings_length[prefix_index_for_suffix];
+            prefix_compression_result.encoded_string_lengths[prefix_index_for_suffix];
         wm.suffix_prefix_index[wm.suffix_n_in_block] = wm.prefix_n_in_block - 1;
         sm.suffix_offset_current += suffix_size;
         wm.suffix_n_in_block += 1;

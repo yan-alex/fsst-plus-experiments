@@ -1,4 +1,5 @@
 #pragma once
+#include <generic_utils.h>
 #include <ranges>
 #include "duckdb.hpp"
 #include <iostream>
@@ -6,15 +7,6 @@
 #include "../config.h"
 #include "../global.h"
 
-inline bool TextMatches(const unsigned char *result, const unsigned char *original, const size_t size) {
-    for (int i = 0; i < size; ++i) {
-        if (result[i] != original[i]) {
-            std::cout<<"MISMATCH: "<<"result[i]: "<<result[i] << "original[i]: "<< original[i];
-            return false;
-        }
-    }
-    return true;
-}
 inline void DecompressBlock(const uint8_t *block_start, const fsst_decoder_t &prefix_decoder,
 const fsst_decoder_t &suffix_decoder, const uint8_t *block_stop,
 const std::vector<size_t> &lengths_original,

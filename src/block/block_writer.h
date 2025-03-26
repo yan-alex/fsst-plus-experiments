@@ -22,10 +22,10 @@ inline void WritePrefixArea(const FSSTCompressionResult &prefix_compression_resu
                               const size_t prefix_area_start_index, uint8_t *&current_data_ptr) {
     for (size_t i = 0; i < wm.prefix_n_in_block; i++) {
         const size_t prefix_index = prefix_area_start_index + i;
-        const size_t prefix_length = prefix_compression_result.encoded_strings_length[prefix_index];
+        const size_t prefix_length = prefix_compression_result.encoded_string_lengths[prefix_index];
 
         // std::cout << "Write Prefix " << i << " Length=" << prefix_length << '\n';
-        const unsigned char *prefix_start = prefix_compression_result.encoded_strings[prefix_index];
+        const unsigned char *prefix_start = prefix_compression_result.encoded_string_ptrs[prefix_index];
         memcpy(current_data_ptr, prefix_start, prefix_length);
         current_data_ptr += prefix_length;
     }
@@ -37,7 +37,7 @@ inline void WriteSuffixArea(const FSSTCompressionResult &suffix_compression_resu
         const size_t suffix_index = suffix_area_start_index + i;
         
         // Add bounds check
-        if (suffix_index >= suffix_compression_result.encoded_strings.size()) {
+        if (suffix_index >= suffix_compression_result.encoded_string_ptrs.size()) {
             std::cerr << "⚠️ Invalid suffix index: " << suffix_index << "\n";
             throw std::logic_error("Invalid suffix index. Terminating.");
         }
@@ -62,8 +62,8 @@ inline void WriteSuffixArea(const FSSTCompressionResult &suffix_compression_resu
         }
 
         // write the suffix
-        const size_t suffix_length = suffix_compression_result.encoded_strings_length[suffix_index];
-        const unsigned char *suffix_start = suffix_compression_result.encoded_strings[suffix_index];
+        const size_t suffix_length = suffix_compression_result.encoded_string_lengths[suffix_index];
+        const unsigned char *suffix_start = suffix_compression_result.encoded_string_ptrs[suffix_index];
         memcpy(current_data_ptr, suffix_start, suffix_length);
         current_data_ptr += suffix_length;
     }
