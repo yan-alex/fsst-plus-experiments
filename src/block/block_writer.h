@@ -27,6 +27,7 @@ inline void WritePrefixArea(const FSSTCompressionResult &prefix_compression_resu
         const size_t prefix_length = prefix_compression_result.encoded_string_lengths[prefix_index];
 
         std::cout << "Write Prefix " << i << " Length=" << prefix_length << '\n';
+        
 
         const unsigned char *prefix_start = prefix_compression_result.encoded_string_ptrs[prefix_index];
         std::cout << "Current data ptr: " << static_cast<void*>(current_data_ptr) << '\n';  // Cast to void* to print address
