@@ -124,8 +124,13 @@ inline FSSTCompressionResult FSSTCompress(StringCollection &input) {
     // Compression outputs
     std::vector<size_t> lenOut(n);
     std::vector<unsigned char *> strOut(n);
-    // Calculate worst-case output size (2 * input)
-    size_t max_out_size = 120000*1000;
+
+    // Calculate worst-case output size (2 * input) + datastructure overhead
+    size_t max_out_size = 0;
+    for (size_t i = 0; i < n; i++) {
+        max_out_size += input.lengths[i];
+    }
+    max_out_size = max_out_size * 5; // *5 to cover datastructure overhead just in case
     unsigned char *output = static_cast<unsigned char *>(malloc(max_out_size));
 
 

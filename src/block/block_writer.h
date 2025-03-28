@@ -19,13 +19,18 @@ inline void WriteBlockHeader(const BlockWritingMetadata &wm, uint8_t *&current_d
 }
 
 inline void WritePrefixArea(const FSSTCompressionResult &prefix_compression_result, const BlockWritingMetadata &wm,
-                              const size_t prefix_area_start_index, uint8_t *&current_data_ptr) {
+                              const size_t prefix_area_start_index, 
+                              uint8_t *&current_data_ptr // A reference to a pointer. When updated, the original pointer is updated as well.
+                              ) {
     for (size_t i = 0; i < wm.prefix_n_in_block; i++) {
         const size_t prefix_index = prefix_area_start_index + i;
         const size_t prefix_length = prefix_compression_result.encoded_string_lengths[prefix_index];
 
-        // std::cout << "Write Prefix " << i << " Length=" << prefix_length << '\n';
+        std::cout << "Write Prefix " << i << " Length=" << prefix_length << '\n';
+
         const unsigned char *prefix_start = prefix_compression_result.encoded_string_ptrs[prefix_index];
+        std::cout << "Current data ptr: " << static_cast<void*>(current_data_ptr) << '\n';  // Cast to void* to print address
+        std::cout << "Will write up to: " << static_cast<void*>(current_data_ptr + prefix_length) << '\n';  
         memcpy(current_data_ptr, prefix_start, prefix_length);
         current_data_ptr += prefix_length;
     }
@@ -73,9 +78,9 @@ inline void WriteSuffixArea(const FSSTCompressionResult &suffix_compression_resu
 inline uint8_t * WriteBlock(uint8_t *block_start,
                         const FSSTCompressionResult &prefix_compression_result,
                         const FSSTCompressionResult &suffix_compression_result, const BlockWritingMetadata &wm) {
+    std::cout << "\n🧱 Block_start: " << static_cast<void*>(block_start) << '\n';
 
     uint8_t *current_data_ptr = block_start;
-
     // A) WRITE THE HEADER
     WriteBlockHeader(wm, current_data_ptr);
 

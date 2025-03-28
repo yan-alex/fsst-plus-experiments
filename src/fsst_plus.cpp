@@ -99,9 +99,10 @@ FSSTPlusCompressionResult FSSTPlusCompress(const size_t n, std::vector<Similarit
     compression_result.suffix_encoder = suffix_compression_result.encoder;
 
     // Allocate the maximum size possible for the corpus
-    compression_result.data_start = new uint8_t[CalcMaxFSSTPlusDataSize(prefix_compression_result,
-                                                                  suffix_compression_result)];
-
+    size_t max_size = CalcMaxFSSTPlusDataSize(prefix_compression_result,suffix_compression_result);
+    compression_result.data_start = new uint8_t[max_size];
+    std::cout << "Data should start at: " << static_cast<void*>(compression_result.data_start) << '\n';
+    std::cout << "and end at: " << static_cast<void*>(compression_result.data_start + max_size) << '\n';
     /*
      *  >>> WRITE GLOBAL HEADER <<<
      *
@@ -307,9 +308,8 @@ int main() {
     
     if (!CreateResultsTable(con)) return 1;
     
-    // List all datasets in the refined directory
+    // vector<string> datasets = FindDatasets(con, data_dir); //TODO: Uncomment this
     string data_dir = config::project_dir + "/benchmarking/data/refined";
-    // vector<string> datasets = FindDatasets(con, data_dir);
 
     vector<string> datasets = {"/export/scratch2/home/yla/fsst-plus-experiments/benchmarking/data/refined/NextiaJD/github_issues.parquet"};
 
@@ -330,7 +330,8 @@ int main() {
         auto columns_result = con.Query("SELECT column_name FROM duckdb_columns() WHERE table_name = 'temp_view'");
         
         try {
-            vector<string> column_names = GetColumnNames(columns_result);
+            // vector<string> column_names = GetColumnNames(columns_result);//TODO: Uncomment this
+            vector<string> column_names = {"body"};
             
             // For each column
             for (const auto& column_name : column_names) {
