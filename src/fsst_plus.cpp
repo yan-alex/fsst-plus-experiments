@@ -48,6 +48,7 @@ const std::vector<const unsigned char *> &string_ptrs_original
 
         DecompressBlock(block_start, prefix_decoder, suffix_decoder, block_stop, lengths_original, string_ptrs_original);
     }
+    std::cout << "Decompression verified\n";
 }
 
 StringCollection RetrieveData(const unique_ptr<MaterializedQueryResult> &result, unique_ptr<DataChunk> &data_chunk, const size_t &n) {
@@ -184,6 +185,7 @@ bool CreateResultsTable(Connection &con) {
     // Create a results table to store benchmarks
     const string create_results_table =
             "CREATE TABLE results ("
+            "path VARCHAR, "
             "dataset VARCHAR, "
             "col_name VARCHAR, "
             "algo VARCHAR, "
@@ -307,12 +309,16 @@ int main() {
     
     // List all datasets in the refined directory
     string data_dir = config::project_dir + "/benchmarking/data/refined";
-    vector<string> datasets = FindDatasets(con, data_dir);
+    // vector<string> datasets = FindDatasets(con, data_dir);
+
+    vector<string> datasets = {"/export/scratch2/home/yla/fsst-plus-experiments/benchmarking/data/refined/NextiaJD/github_issues.parquet"};
+
     
     // For each dataset
     for (const auto& dataset_path : datasets) {
 
         // Extract dataset name from path
+        string dataset_folders = dataset_path.substr(0, dataset_path.find_last_of("/"));
         string substring = dataset_path.substr(dataset_path.find_last_of("/") + 1);
         string dataset_name = substring.substr(0, substring.find_last_of('.'));
 
@@ -338,6 +344,7 @@ int main() {
                 }
 
                 // Set global variables for tracking
+                global::dataset_folders = dataset_folders;
                 global::dataset = dataset_name;
                 global::column = column_name;
                 global::algo = "fsst_plus";
@@ -408,6 +415,7 @@ int main() {
                     
                     // Add results to table
                     string insert_query = "INSERT INTO results VALUES ('" + 
+                        global::dataset_folders + "', '" + 
                         global::dataset + "', '" + 
                         global::column + "', '" + 
                         global::algo + "', " + 

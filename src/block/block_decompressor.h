@@ -57,6 +57,7 @@ const std::vector<const unsigned char *> &string_ptrs_original) {
             // Test if it's correct!
             if (decompressed_suffix_size != lengths_original[global::global_index] || !TextMatches(result, string_ptrs_original[global::global_index], decompressed_suffix_size)) {
                 std::cerr << "‼️ ERROR: Decompression mismatch (suffix only):\n"<<"result:   " << result << "\noriginal: " << string_ptrs_original[global::global_index] << "\n";
+                throw std::runtime_error("Decompression mismatch (suffix only)");
             }
         } else {
             const uint8_t *jumpback_offset_ptr = suffix_data_area_start + sizeof(uint8_t);
@@ -89,6 +90,7 @@ const std::vector<const unsigned char *> &string_ptrs_original) {
             size_t decompressed_size = decompressed_suffix_size + decompressed_prefix_size;
             if (decompressed_size != lengths_original[global::global_index] || !TextMatches(result, string_ptrs_original[global::global_index], decompressed_suffix_size + decompressed_prefix_size)) {
                 std::cerr << "‼️ ERROR: Decompression mismatch:\n"<<"result:   " << result << "\noriginal: " << string_ptrs_original[global::global_index] << "\n";
+                throw std::runtime_error("Decompression mismatch");
             }
 
 

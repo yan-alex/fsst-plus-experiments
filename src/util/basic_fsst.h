@@ -113,7 +113,7 @@ inline void VerifyDecompressionCorrectness(const StringCollection &input, const 
             throw std::logic_error("Decompression mismatch detected. Terminating.");
         }
     }
-    std::cout << "\nDecompression successful\n";
+    std::cout << "Decompression verified\n";
 };
 
 inline FSSTCompressionResult FSSTCompress(StringCollection &input) {
@@ -205,6 +205,7 @@ inline void RunBasicFSST(duckdb::Connection &con, StringCollection &input) {
     
     // Store results in the database
     std::string insert_query = "INSERT INTO results VALUES ('" +
+                               global::dataset_folders + "', '" +
                                global::dataset + "', '" +
                                global::column + "', '" +
                                global::algo + "', " +

@@ -5,6 +5,7 @@
 namespace global {
     size_t global_index = 0;
 
+    std::string dataset_folders = "";
     std::string dataset = "";
     std::string column = "";
     std::string algo = "";
