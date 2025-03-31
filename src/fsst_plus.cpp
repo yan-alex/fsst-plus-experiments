@@ -137,6 +137,16 @@ FSSTPlusCompressionResult FSSTPlusCompress(const size_t n, std::vector<Similarit
         prefix_area_start_index += wm.prefix_n_in_block;
         suffix_area_start_index += wm.suffix_n_in_block;
     }
+    for (size_t i = 0; i < wms.size(); i++) {
+        std::cout << "\n 🟪 BLOCK SIZING RESULTS i "
+        << std::setw(3) << i << ": "
+        << ": N Strings: " << wms[i].suffix_n_in_block
+        << " N Prefixes: " << wms[i].prefix_n_in_block
+        // << " sm.block_size: " << wms[i].block_size
+        << " wm.prefix_area_size: " << wms[i].prefix_area_size << " 🟪 \n";
+
+    }
+
     uint8_t* global_header_ptr = compression_result.data_start;
 
     // Now we can write!
@@ -166,9 +176,11 @@ FSSTPlusCompressionResult FSSTPlusCompress(const size_t n, std::vector<Similarit
     uint8_t* next_block_start_ptr = global_header_ptr;
 
     //  >>> WRITE BLOCKS <<<
-    for (BlockWritingMetadata wm: wms) {
+    for (size_t i = 0; i < wms.size(); i++) {
         // use metadata to write correctly
-        next_block_start_ptr = WriteBlock(next_block_start_ptr, prefix_compression_result, suffix_compression_result, wm);
+        std::cout << "wm.prefix_area_size: " << wms[i].prefix_area_size << "\n";
+        std::cout << "\n🧱 Block " << std::setw(3) << i << " start: " << static_cast<void*>(next_block_start_ptr) << '\n';
+        next_block_start_ptr = WriteBlock(next_block_start_ptr, prefix_compression_result, suffix_compression_result, wms[i]);
     }
 
     // Cleanup
