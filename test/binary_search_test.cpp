@@ -43,21 +43,21 @@ int main() {
         // Test Case 3: Large index within the last chunk
         std::vector<SimilarityChunk> chunks3 = {{0, 10}, {100, 5}, {200, 8}};
         assert(FindSimilarityChunkCorrespondingToIndex(500, chunks3) == 2);
-         std::cout << "Test Case 3 Passed: Large index in last chunk." << std::endl;
+        std::cout << "Test Case 3 Passed: Large index in last chunk." << std::endl;
     }
 
-     {
+    {
         // Test Case 4: Chunks with gaps
         std::vector<SimilarityChunk> chunks4 = {{10, 5}, {30, 8}, {50, 12}};
-         assert(FindSimilarityChunkCorrespondingToIndex(10, chunks4) == 0);
-         assert(FindSimilarityChunkCorrespondingToIndex(20, chunks4) == 0); // In the 'gap' before chunk 1
-         assert(FindSimilarityChunkCorrespondingToIndex(29, chunks4) == 0); // Just before chunk 1
-         assert(FindSimilarityChunkCorrespondingToIndex(30, chunks4) == 1);
-         assert(FindSimilarityChunkCorrespondingToIndex(45, chunks4) == 1); // In the 'gap' before chunk 2
-         assert(FindSimilarityChunkCorrespondingToIndex(49, chunks4) == 1); // Just before chunk 2
-         assert(FindSimilarityChunkCorrespondingToIndex(50, chunks4) == 2);
-         assert(FindSimilarityChunkCorrespondingToIndex(100, chunks4) == 2); // Within last chunk
-         std::cout << "Test Case 4 Passed: Chunks with gaps." << std::endl;
+        assert(FindSimilarityChunkCorrespondingToIndex(10, chunks4) == 0);
+        assert(FindSimilarityChunkCorrespondingToIndex(20, chunks4) == 0); // In the 'gap' before chunk 1
+        assert(FindSimilarityChunkCorrespondingToIndex(29, chunks4) == 0); // Just before chunk 1
+        assert(FindSimilarityChunkCorrespondingToIndex(30, chunks4) == 1);
+        assert(FindSimilarityChunkCorrespondingToIndex(45, chunks4) == 1); // In the 'gap' before chunk 2
+        assert(FindSimilarityChunkCorrespondingToIndex(49, chunks4) == 1); // Just before chunk 2
+        assert(FindSimilarityChunkCorrespondingToIndex(50, chunks4) == 2);
+        assert(FindSimilarityChunkCorrespondingToIndex(100, chunks4) == 2); // Within last chunk
+        std::cout << "Test Case 4 Passed: Chunks with gaps." << std::endl;
     }
 
     std::cout << "All tests passed successfully.\n";
