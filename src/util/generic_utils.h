@@ -26,10 +26,8 @@ inline bool TextMatches(const unsigned char *result, const unsigned char *origin
 
 inline size_t FindSimilarityChunkCorrespondingToIndex(const size_t &target_index,
                                                            const std::vector<SimilarityChunk> &similarity_chunks) {
-    // Handle empty or single chunk case
-    if (similarity_chunks.empty()) {
-        return 0;
-    }
+    assert(!similarity_chunks.empty());
+    assert(target_index >= similarity_chunks[0].start_index);
 
     // Binary search to find the chunk where target_index falls between start_index of current chunk
     // and start_index of next chunk (or is within the last chunk)

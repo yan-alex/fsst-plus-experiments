@@ -21,6 +21,8 @@ target_link_libraries(fsst_plus duckdb fsst)
 add_executable(cleaving_test test/cleaving_test.cpp)
 target_link_libraries(cleaving_test duckdb fsst)
 
+add_executable(binary_search_test test/binary_search_test.cpp)
+
 
 
 
