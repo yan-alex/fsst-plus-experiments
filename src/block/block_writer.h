@@ -22,14 +22,14 @@ inline void WritePrefixArea(const FSSTCompressionResult &prefix_compression_resu
                               const size_t prefix_area_start_index, 
                               uint8_t *&current_data_ptr // A reference to a pointer. When updated, the original pointer is updated as well.
                               ) {
-    std::cout << "prefix_compression_result.encoded_string_lengths.size(): " << prefix_compression_result.encoded_string_lengths.size() << '\n';
-    std::cout << "wm.prefix_n_in_block: " << wm.prefix_n_in_block << '\n';
+    // std::cout << "prefix_compression_result.encoded_string_lengths.size(): " << prefix_compression_result.encoded_string_lengths.size() << '\n';
+    // std::cout << "wm.prefix_n_in_block: " << wm.prefix_n_in_block << '\n';
 
     for (size_t i = 0; i < wm.prefix_n_in_block; i++) {
-        std::cout << "iteration: " << i << '\n';
+        // std::cout << "iteration: " << i << '\n';
 
         const size_t prefix_index = prefix_area_start_index + i;
-        std::cout << "prefix_index: " << prefix_index << '\n';
+        // std::cout << "prefix_index: " << prefix_index << '\n';
         
         // Add bounds checking before accessing the vector
         if (prefix_index >= prefix_compression_result.encoded_string_lengths.size()) {

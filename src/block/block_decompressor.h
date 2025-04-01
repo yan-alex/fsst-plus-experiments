@@ -56,7 +56,7 @@ const std::vector<const unsigned char *> &string_ptrs_original) {
             
             // Test if it's correct!
             if (decompressed_suffix_size != lengths_original[global::global_index] || !TextMatches(result, string_ptrs_original[global::global_index], decompressed_suffix_size)) {
-                std::cerr << "‼️ ERROR: Decompression mismatch (suffix only):\n"<<"result:   " << result << "\noriginal: " << string_ptrs_original[global::global_index] << "\n";
+                std::cerr << "‼️ ERROR: Decompression mismatch (suffix only) i: "<< i <<":\n"<<"result:   " << result << "\noriginal: " << string_ptrs_original[global::global_index] << "\n";
                 throw std::runtime_error("Decompression mismatch (suffix only)");
             }
         } else {
