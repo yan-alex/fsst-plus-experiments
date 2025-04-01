@@ -1,4 +1,5 @@
 #include "config.h"
+#include "env.h"
 #include "duckdb.hpp"
 #include <iostream>
 #include <fstream>
@@ -178,7 +179,7 @@ FSSTPlusCompressionResult FSSTPlusCompress(const size_t n, std::vector<Similarit
     //  >>> WRITE BLOCKS <<<
     for (size_t i = 0; i < wms.size(); i++) {
         // use metadata to write correctly
-        std::cout << "wm.prefix_area_size: " << wms[i].prefix_area_size << "\n";
+        // std::cout << "wm.prefix_area_size: " << wms[i].prefix_area_size << "\n";
         std::cout << "\n🧱 Block " << std::setw(3) << i << " start: " << static_cast<void*>(next_block_start_ptr) << '\n';
         next_block_start_ptr = WriteBlock(next_block_start_ptr, prefix_compression_result, suffix_compression_result, wms[i]);
     }
@@ -307,10 +308,10 @@ int main() {
     // string project_dir = "/Users/yanlannaalexandre/_DA_REPOS/fsst-plus-experiments";
 
     // Create a persistent database connection
-    string db_path = config::project_dir + "/benchmarking/results/benchmark.db";
+    string db_path = env::project_dir + "/benchmarking/results/benchmark.db";
     
     // Ensure the data directory exists using system commands
-    system(("mkdir -p " + config::project_dir + "benchmarking/data").c_str());
+    system(("mkdir -p " + env::project_dir + "benchmarking/data").c_str());
     
     // Remove any existing database file to start fresh
     system(("rm -f " + db_path).c_str());
@@ -319,11 +320,11 @@ int main() {
     Connection con(db);
     
     if (!CreateResultsTable(con)) return 1;
-    
-    // vector<string> datasets = FindDatasets(con, data_dir); //TODO: Uncomment this
-    string data_dir = config::project_dir + "/benchmarking/data/refined";
 
-    vector<string> datasets = {"/export/scratch2/home/yla/fsst-plus-experiments/benchmarking/data/refined/NextiaJD/github_issues.parquet"};
+    string data_dir = env::project_dir + "/benchmarking/data/refined";
+
+    vector<string> datasets = FindDatasets(con, data_dir); //TODO: Uncomment this
+    // vector<string> datasets = {data_dir + "/NextiaJD/github_issues.parquet"};
 
     
     // For each dataset
@@ -342,8 +343,8 @@ int main() {
         auto columns_result = con.Query("SELECT column_name FROM duckdb_columns() WHERE table_name = 'temp_view'");
         
         try {
-            // vector<string> column_names = GetColumnNames(columns_result);//TODO: Uncomment this
-            vector<string> column_names = {"body"};
+            vector<string> column_names = GetColumnNames(columns_result);//TODO: Uncomment this
+            // vector<string> column_names = {"body"};
             
             // For each column
             for (const auto& column_name : column_names) {
@@ -507,13 +508,13 @@ int main() {
         }
         
         // Save results to parquet file
-        string save_query = "COPY results TO '" + config::project_dir + "/benchmarking/results/results.parquet' (FORMAT 'parquet', OVERWRITE TRUE)";
+        string save_query = "COPY results TO '" + env::project_dir + "/benchmarking/results/results.parquet' (FORMAT 'parquet', OVERWRITE TRUE)";
         con.Query(save_query);
         
         // Verify the file was created
-        std::ifstream file_check((config::project_dir + "/benchmarking/results/results.parquet").c_str());
+        std::ifstream file_check((env::project_dir + "/benchmarking/results/results.parquet").c_str());
         if (file_check.good()) {
-            std::cout << "Results saved to " << config::project_dir << "/benchmarking/results/results.parquet" << std::endl;
+            std::cout << "Results saved to " << env::project_dir << "/benchmarking/results/results.parquet" << std::endl;
         } else {
             std::cerr << "Warning: Results file not found after save operation" << std::endl;
         }

@@ -3,9 +3,6 @@
 #include <string>
 
 namespace config {
-    const std::string project_dir = "/export/scratch2/home/yla/fsst-plus-experiments";
-    // const std::string project_dir = "/rUsers/yanlannaalexandre/_DA_REPOS/fsst-plus-experiments";
-
     extern const size_t total_strings;
     extern const size_t block_byte_capacity;
     extern const bool print_sorted_corpus; // whether to print sorted strings.
@@ -16,5 +13,4 @@ namespace config {
     constexpr size_t max_prefix_size = 120; // how far into the string to scan for a prefix. (max prefix size)
     constexpr size_t amount_strings_per_symbol_table = 120000; // 120000 = a duckdb row group
     size_t global_index = 0;
-
 }
