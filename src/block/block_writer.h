@@ -62,7 +62,7 @@ inline void WriteSuffixArea(const FSSTCompressionResult &suffix_compression_resu
             throw std::logic_error("Invalid suffix index. Terminating.");
         }
         
-        uint8_t prefix_index_for_suffix = wm.suffix_prefix_index[i];
+        uint8_t prefix_index = wm.suffix_prefix_index[i];
         uint8_t suffix_prefix_length = wm.suffix_encoded_prefix_lengths[i];
         const bool suffix_has_prefix = suffix_prefix_length != 0;
 
@@ -72,7 +72,7 @@ inline void WriteSuffixArea(const FSSTCompressionResult &suffix_compression_resu
 
         // if there is a prefix, calculate offset and store it
         if (suffix_has_prefix) {
-            size_t prefix_offset_from_first_prefix = wm.prefix_offsets_from_first_prefix[prefix_index_for_suffix];
+            size_t prefix_offset_from_first_prefix = wm.prefix_offsets_from_first_prefix[prefix_index];
             size_t suffix_offset_from_first_suffix = wm.suffix_offsets_from_first_suffix[i]; // should it index by suffix_index or by i?
             uint16_t prefix_jumpback_offset = (wm.prefix_area_size - prefix_offset_from_first_prefix) +
                                               suffix_offset_from_first_suffix;

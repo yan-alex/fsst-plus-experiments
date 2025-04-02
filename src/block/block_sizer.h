@@ -9,8 +9,8 @@
 inline bool TryAddPrefix(BlockSizingMetadata &sm,
                          BlockWritingMetadata &wm,
                          const FSSTCompressionResult &prefix_compression_result,
-                         const size_t prefix_index_for_suffix) {
-    const size_t prefix_size = prefix_compression_result.encoded_string_lengths[prefix_index_for_suffix];
+                         const size_t prefix_index) {
+    const size_t prefix_size = prefix_compression_result.encoded_string_lengths[prefix_index];
     if (sm.block_size + prefix_size >= config::block_byte_capacity) {
         return false;
     }
@@ -18,7 +18,7 @@ inline bool TryAddPrefix(BlockSizingMetadata &sm,
     wm.prefix_n_in_block += 1;
     wm.prefix_area_size += prefix_size;
     sm.block_size += prefix_size;
-    sm.prefix_last_index_added = prefix_index_for_suffix;
+    sm.prefix_last_index_added = prefix_index;
     return true;
 }
 
@@ -59,12 +59,12 @@ inline size_t CalculateBlockSizeAndPopulateWritingMetadata(const std::vector<Sim
     size_t strings_to_go = suffix_compression_result.encoded_string_ptrs.size() - suffix_area_start_index;
     while (wm.suffix_n_in_block < std::min(strings_to_go, config::block_granularity)) {
         const size_t suffix_index = suffix_area_start_index + wm.suffix_n_in_block; // starts at 0
-        const size_t prefix_index_for_suffix =
+        const size_t prefix_index =
             FindSimilarityChunkCorrespondingToIndex(suffix_index, similarity_chunks);
 
         // If new prefix is needed, try to add it
-        if (prefix_index_for_suffix != sm.prefix_last_index_added) {
-            if (!TryAddPrefix(sm, wm, prefix_compression_result, prefix_index_for_suffix)) {
+        if (prefix_index != sm.prefix_last_index_added) {
+            if (!TryAddPrefix(sm, wm, prefix_compression_result, prefix_index)) {
                 break;
             }
         }
@@ -83,11 +83,11 @@ inline size_t CalculateBlockSizeAndPopulateWritingMetadata(const std::vector<Sim
         sm.block_size += suffix_size + block_header_suffix_offset_size;
 
         // Update suffix metadata
-        wm.suffix_offsets_from_first_suffix[wm.suffix_n_in_block] = sm.suffix_offset_current;
+        wm.suffix_offsets_from_first_suffix[wm.suffix_n_in_block] = wm.suffix_area_size;
         wm.suffix_encoded_prefix_lengths[wm.suffix_n_in_block] =
-            prefix_compression_result.encoded_string_lengths[prefix_index_for_suffix];
-        wm.suffix_prefix_index[wm.suffix_n_in_block] = wm.prefix_n_in_block - 1;
-        sm.suffix_offset_current += suffix_size;
+            prefix_compression_result.encoded_string_lengths[prefix_index];
+        wm.suffix_prefix_index[wm.suffix_n_in_block] = wm.prefix_n_in_block - 1; // -1 because we increased it earlier
+        wm.suffix_area_size += suffix_size;
         wm.suffix_n_in_block += 1;
     }
 
