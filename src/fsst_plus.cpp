@@ -139,15 +139,16 @@ FSSTPlusCompressionResult FSSTPlusCompress(const size_t n, std::vector<Similarit
         suffix_area_start_index += wm.suffix_n_in_block;
     }
     
-    // for (size_t i = 0; i < wms.size(); i++) {
-    //     std::cout << "\n 🟪 BLOCK SIZING RESULTS i "
-    //     << std::setw(3) << i << ": "
-    //     << ": N Strings: " << wms[i].suffix_n_in_block
-    //     << " N Prefixes: " << wms[i].prefix_n_in_block
-    //     // << " sm.block_size: " << wms[i].block_size
-    //     << " wm.prefix_area_size: " << wms[i].prefix_area_size << " 🟪 \n";
+    for (size_t i = 0; i < wms.size(); i++) {
+        std::cout << "🟪 BLOCK SIZING RESULTS i "
+        << std::setw(3) << i << ": "
+        << ": N Strings: " << std::setw(3) << wms[i].suffix_n_in_block
+        << " N Prefixes: " << std::setw(3) << wms[i].prefix_n_in_block
+        << " wm.prefix_area_size: " << std::setw(3) << wms[i].prefix_area_size
+        << " prefix_area_start_index: " << std::setw(6) <<  wms[i].prefix_area_start_index
+        <<" 🟪 \n";
 
-    // }
+    }
 
     uint8_t* global_header_ptr = compression_result.data_start;
 
@@ -326,8 +327,8 @@ int main() {
 
     string data_dir = env::project_dir + "/benchmarking/data/refined";
 
-    vector<string> datasets = FindDatasets(con, data_dir); //TODO: Uncomment this
-    // vector<string> datasets = {data_dir + "/NextiaJD/github_issues.parquet"};
+    // vector<string> datasets = FindDatasets(con, data_dir); //TODO: Uncomment this
+    vector<string> datasets = {data_dir + "/NextiaJD/github_issues.parquet"};
 
     
     // For each dataset
@@ -346,8 +347,8 @@ int main() {
         auto columns_result = con.Query("SELECT column_name FROM duckdb_columns() WHERE table_name = 'temp_view'");
         
         try {
-            vector<string> column_names = GetColumnNames(columns_result);//TODO: Uncomment this
-            // vector<string> column_names = {"body"};
+            // vector<string> column_names = GetColumnNames(columns_result);//TODO: Uncomment this
+            vector<string> column_names = {"body"};
             
             // For each column
             for (const auto& column_name : column_names) {
@@ -382,8 +383,6 @@ int main() {
                         continue;
                     }
 
-
-
                     const size_t n = std::min(config::amount_strings_per_symbol_table, static_cast<size_t>(result->RowCount()));
                     
                     StringCollection input = RetrieveData(result, data_chunk, n); // 100k rows
@@ -409,9 +408,12 @@ int main() {
                     auto start_time = std::chrono::high_resolution_clock::now();
 
                     const std::vector<SimilarityChunk> similarity_chunks = FormSimilarityChunks(n, input);
-                    
+                    std::cout << "🤓 Similarity Chunks 🤓\n";
+                    for (int i = 0; i < similarity_chunks.size(); ++i) {
+                        std::cout << "i:" << std::setw(6) << i << " start_index: " << std::setw(6)<< similarity_chunks[i].start_index << " prefix_length: " << std::setw(3) <<similarity_chunks[i].prefix_length << "\n";
+                    }
+
                     const CleavedResult cleaved_result = Cleave(input.lengths, input.string_ptrs, similarity_chunks, n);
-                    
 
                     const FSSTPlusCompressionResult compression_result = FSSTPlusCompress(n, similarity_chunks, cleaved_result);
 
