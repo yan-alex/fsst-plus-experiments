@@ -1,5 +1,6 @@
 #pragma once
 #include <ranges>
+#include "../config.h"
 
 struct BlockWritingMetadata {
     /*

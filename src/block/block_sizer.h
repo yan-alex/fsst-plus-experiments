@@ -37,8 +37,8 @@ inline size_t CalculateSuffixPlusHeaderSize(const FSSTCompressionResult &suffix_
 inline bool CanFitInBlock(const BlockSizingMetadata &bsm,
                           const size_t additional_size) {
     // We also need space for one uint16_t header offset
-    constexpr size_t suffix_block_header_offset = sizeof(uint16_t);
-    return (bsm.block_size + additional_size + suffix_block_header_offset
+    constexpr size_t block_header_suffix_offset = sizeof(uint16_t);
+    return (bsm.block_size + additional_size + block_header_suffix_offset
             < config::block_byte_capacity);
 }
 
