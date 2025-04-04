@@ -2,8 +2,10 @@
 // Created by Yan Lanna Alexandre on 07/03/2025.
 //
 #pragma once
-#include "cleaving_types.h"
 #include <vector>
+#include <iostream>
+#include <cassert>
+#include "cleaving_types.h"
 
 inline bool TextMatches(const unsigned char *result, const unsigned char *original, const size_t &size) {
     for (int i = 0; i < size; ++i) {
