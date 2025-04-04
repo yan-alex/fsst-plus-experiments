@@ -34,7 +34,7 @@ inline void WritePrefixArea(const FSSTCompressionResult &prefix_compression_resu
         // Add bounds checking before accessing the vector
         if (prefix_index >= prefix_compression_result.encoded_string_lengths.size()) {
             std::cerr << "⛔️ Prefix index out of bounds: " << prefix_index << " >= " << prefix_compression_result.encoded_string_lengths.size() << "\n";
-            throw std::logic_error("Prefix index out of bounds. Terminating.");
+            throw std::logic_error("Prefix index out of bounds.");
         }
         
         const size_t prefix_length = prefix_compression_result.encoded_string_lengths[prefix_index];

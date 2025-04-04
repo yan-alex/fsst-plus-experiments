@@ -138,15 +138,16 @@ FSSTPlusCompressionResult FSSTPlusCompress(const size_t n, std::vector<Similarit
         prefix_area_start_index += wm.prefix_n_in_block;
         suffix_area_start_index += wm.suffix_n_in_block;
     }
-    for (size_t i = 0; i < wms.size(); i++) {
-        std::cout << "\n 🟪 BLOCK SIZING RESULTS i "
-        << std::setw(3) << i << ": "
-        << ": N Strings: " << wms[i].suffix_n_in_block
-        << " N Prefixes: " << wms[i].prefix_n_in_block
-        // << " sm.block_size: " << wms[i].block_size
-        << " wm.prefix_area_size: " << wms[i].prefix_area_size << " 🟪 \n";
+    
+    // for (size_t i = 0; i < wms.size(); i++) {
+    //     std::cout << "\n 🟪 BLOCK SIZING RESULTS i "
+    //     << std::setw(3) << i << ": "
+    //     << ": N Strings: " << wms[i].suffix_n_in_block
+    //     << " N Prefixes: " << wms[i].prefix_n_in_block
+    //     // << " sm.block_size: " << wms[i].block_size
+    //     << " wm.prefix_area_size: " << wms[i].prefix_area_size << " 🟪 \n";
 
-    }
+    // }
 
     uint8_t* global_header_ptr = compression_result.data_start;
 
@@ -179,8 +180,10 @@ FSSTPlusCompressionResult FSSTPlusCompress(const size_t n, std::vector<Similarit
     //  >>> WRITE BLOCKS <<<
     for (size_t i = 0; i < wms.size(); i++) {
         // use metadata to write correctly
+
         // std::cout << "wm.prefix_area_size: " << wms[i].prefix_area_size << "\n";
-        std::cout << "\n🧱 Block " << std::setw(3) << i << " start: " << static_cast<void*>(next_block_start_ptr) << '\n';
+
+        // std::cout << "\n🧱 Block " << std::setw(3) << i << " start: " << static_cast<void*>(next_block_start_ptr) << '\n';
         next_block_start_ptr = WriteBlock(next_block_start_ptr, prefix_compression_result, suffix_compression_result, wms[i]);
     }
 
@@ -409,6 +412,7 @@ int main() {
                     
                     const CleavedResult cleaved_result = Cleave(input.lengths, input.string_ptrs, similarity_chunks, n);
                     
+
                     const FSSTPlusCompressionResult compression_result = FSSTPlusCompress(n, similarity_chunks, cleaved_result);
 
                     // End timing
@@ -452,7 +456,8 @@ int main() {
                     delete[] compression_result.data_start;
                 } catch (std::exception& e) {
                     std::cerr << "Error processing " << dataset_name << "." << column_name << ": " << e.what() << std::endl;
-                    return 1;
+                    std::cerr << "Moving on to the next dataset" << std::endl;
+                    // return 1;
                 }
             }
         } catch (std::exception& e) {
