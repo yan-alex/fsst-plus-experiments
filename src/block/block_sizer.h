@@ -14,8 +14,8 @@ inline bool TryAddPrefix(BlockSizingMetadata &sm,
     if (sm.block_size + prefix_size >= config::block_byte_capacity) {
         return false;
     }
-    wm.prefix_offsets_from_first_prefix[wm.prefix_n_in_block] = wm.prefix_area_size;
-    wm.prefix_n_in_block += 1;
+    wm.prefix_offsets_from_first_prefix[wm.number_of_prefixes] = wm.prefix_area_size;
+    wm.number_of_prefixes += 1;
     wm.prefix_area_size += prefix_size;
     sm.block_size += prefix_size;
     sm.prefix_last_index_added = prefix_index;
@@ -57,8 +57,8 @@ inline size_t CalculateBlockSizeAndPopulateWritingMetadata(const std::vector<Sim
 
     // Try to fit as many suffixes as possible, up to 128
     size_t strings_to_go = suffix_compression_result.encoded_string_ptrs.size() - suffix_area_start_index;
-    while (wm.suffix_n_in_block < std::min(strings_to_go, config::block_granularity)) {
-        const size_t suffix_index = suffix_area_start_index + wm.suffix_n_in_block; // starts at 0
+    while (wm.number_of_suffixes < std::min(strings_to_go, config::block_granularity)) {
+        const size_t suffix_index = suffix_area_start_index + wm.number_of_suffixes; // starts at 0
         const size_t prefix_index =
             FindSimilarityChunkCorrespondingToIndex(suffix_index, similarity_chunks);
 
@@ -83,18 +83,20 @@ inline size_t CalculateBlockSizeAndPopulateWritingMetadata(const std::vector<Sim
         sm.block_size += suffix_size + block_header_suffix_offset_size;
 
         // Update suffix metadata
-        wm.suffix_offsets_from_first_suffix[wm.suffix_n_in_block] = wm.suffix_area_size;
-        wm.suffix_encoded_prefix_lengths[wm.suffix_n_in_block] =
+        wm.suffix_offsets_from_first_suffix[wm.number_of_suffixes] = wm.suffix_area_size;
+        wm.suffix_encoded_prefix_lengths[wm.number_of_suffixes] =
             prefix_compression_result.encoded_string_lengths[prefix_index];
-        wm.suffix_prefix_index[wm.suffix_n_in_block] = wm.prefix_n_in_block - 1; // -1 because we increased it earlier
+        wm.suffix_prefix_index[wm.number_of_suffixes] = wm.number_of_prefixes - 1; // -1 because we increased it earlier
         wm.suffix_area_size += suffix_size;
-        wm.suffix_n_in_block += 1;
+        wm.number_of_suffixes += 1;
     }
 
-    // std::cout << "\n 🟪 BLOCK SIZING RESULTS: N Strings: " << wm.suffix_n_in_block
-    //           << " N Prefixes: " << wm.prefix_n_in_block
-    //           << " sm.block_size: " << sm.block_size
-    //           << " wm.prefix_area_size: " << wm.prefix_area_size << " 🟪 \n";
+    std::cout << "🟪 BLOCK SIZING RESULTS |"
+    << " N Strings: " << std::setw(3) << wm.number_of_suffixes
+    << " N Prefixes: " << std::setw(3) << wm.number_of_prefixes
+    << " wm.prefix_area_size: " << std::setw(3) << wm.prefix_area_size
+    << " prefix_area_start_index: " << std::setw(6) <<  wm.prefix_area_start_index
+    <<" 🟪 \n";
 
     return sm.block_size;
 }

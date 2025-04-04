@@ -7,8 +7,8 @@ struct BlockWritingMetadata {
      * Starts from 0 and goes up to 128. For suffix it ends up being equal to the number of strings in the block.
      * For prefix it's generally less.
      */
-    size_t prefix_n_in_block = 0;
-    size_t suffix_n_in_block = 0;
+    size_t number_of_prefixes = 0;
+    size_t number_of_suffixes = 0;
 
     size_t prefix_area_start_index = 0; // global index
     size_t suffix_area_start_index = 0; // global index

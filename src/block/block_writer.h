@@ -6,12 +6,12 @@
 
 inline void WriteBlockHeader(const BlockWritingMetadata &wm, uint8_t *&current_data_ptr) {
     // A 1) Write the number of strings as an uint_8
-    Store<uint8_t>(wm.suffix_n_in_block, current_data_ptr);
+    Store<uint8_t>(wm.number_of_suffixes, current_data_ptr);
     current_data_ptr += sizeof(uint8_t);
 
     // A 2) Write the suffix_data_area_offsets[]
-    for (size_t i = 0; i < wm.suffix_n_in_block; i++) {
-        const uint16_t offset_array_size_to_go = (wm.suffix_n_in_block - i) * sizeof(uint16_t) - sizeof(uint16_t); // Count itself with - sizeof(uint16_t). So the offsetting starts at the value's end.
+    for (size_t i = 0; i < wm.number_of_suffixes; i++) {
+        const uint16_t offset_array_size_to_go = (wm.number_of_suffixes - i) * sizeof(uint16_t) - sizeof(uint16_t); // Count itself with - sizeof(uint16_t). So the offsetting starts at the value's end.
         uint16_t suffix_data_area_offset = wm.prefix_area_size + offset_array_size_to_go + wm.suffix_offsets_from_first_suffix[i];
         Store<uint16_t>(suffix_data_area_offset, current_data_ptr);
         current_data_ptr += sizeof(uint16_t);
@@ -25,7 +25,7 @@ inline void WritePrefixArea(const FSSTCompressionResult &prefix_compression_resu
     // std::cout << "prefix_compression_result.encoded_string_lengths.size(): " << prefix_compression_result.encoded_string_lengths.size() << '\n';
     // std::cout << "wm.prefix_n_in_block: " << wm.prefix_n_in_block << '\n';
 
-    for (size_t i = 0; i < wm.prefix_n_in_block; i++) {
+    for (size_t i = 0; i < wm.number_of_prefixes; i++) {
         // std::cout << "iteration: " << i << '\n';
 
         const size_t prefix_index = prefix_area_start_index + i;
@@ -53,7 +53,7 @@ inline void WritePrefixArea(const FSSTCompressionResult &prefix_compression_resu
 
 inline void WriteSuffixArea(const FSSTCompressionResult &suffix_compression_result, const BlockWritingMetadata &wm,
                               const size_t &suffix_area_start_index, uint8_t *&current_data_ptr) {
-    for (size_t i = 0; i < wm.suffix_n_in_block; i++) {
+    for (size_t i = 0; i < wm.number_of_suffixes; i++) {
         const size_t suffix_index = suffix_area_start_index + i;
         
         // Add bounds check

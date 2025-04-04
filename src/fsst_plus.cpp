@@ -135,20 +135,20 @@ FSSTPlusCompressionResult FSSTPlusCompress(const size_t n, std::vector<Similarit
         wms.push_back(wm);
 
         // go on to next block
-        prefix_area_start_index += wm.prefix_n_in_block;
-        suffix_area_start_index += wm.suffix_n_in_block;
+        prefix_area_start_index += wm.number_of_prefixes;
+        suffix_area_start_index += wm.number_of_suffixes;
     }
     
-    for (size_t i = 0; i < wms.size(); i++) {
-        std::cout << "🟪 BLOCK SIZING RESULTS i "
-        << std::setw(3) << i << ": "
-        << ": N Strings: " << std::setw(3) << wms[i].suffix_n_in_block
-        << " N Prefixes: " << std::setw(3) << wms[i].prefix_n_in_block
-        << " wm.prefix_area_size: " << std::setw(3) << wms[i].prefix_area_size
-        << " prefix_area_start_index: " << std::setw(6) <<  wms[i].prefix_area_start_index
-        <<" 🟪 \n";
-
-    }
+    // for (size_t i = 0; i < wms.size(); i++) {
+    //     std::cout << "🟪 BLOCK SIZING RESULTS i "
+    //     << std::setw(3) << i << ": "
+    //     << ": N Strings: " << std::setw(3) << wms[i].suffix_n_in_block
+    //     << " N Prefixes: " << std::setw(3) << wms[i].prefix_n_in_block
+    //     << " wm.prefix_area_size: " << std::setw(3) << wms[i].prefix_area_size
+    //     << " prefix_area_start_index: " << std::setw(6) <<  wms[i].prefix_area_start_index
+    //     <<" 🟪 \n";
+    //
+    // }
 
     uint8_t* global_header_ptr = compression_result.data_start;
 
