@@ -10,3 +10,4 @@ data
 benchmarking/results/benchmark.db
 benchmarking/results/results.parquet
 src/env.h
+__pycache__
