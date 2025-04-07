@@ -90,6 +90,36 @@ std::vector<SimilarityChunk> FormSimilarityChunks(const size_t &n, StringCollect
     return similarity_chunks;
 }
 
+FSSTPlusSizingResult SizeEverything(const size_t &n, std::vector<SimilarityChunk> &similarity_chunks, FSSTCompressionResult &prefix_compression_result, FSSTCompressionResult &suffix_compression_result) {
+    // First calculate total size of all blocks
+    std::vector<BlockWritingMetadata> wms;
+    std::vector<size_t> block_sizes_pfx_summed;
+
+    size_t prefix_area_start_index = 0; // start index for this block into all prefixes (stored in prefix_compression_result)
+    size_t suffix_area_start_index = 0; // start index for this block into all suffixes (stored in suffix_compression_result)
+
+    while (suffix_area_start_index < n) {
+        // Create fresh metadata for each block
+        BlockWritingMetadata wm;  // Instead of reusing previous metadata
+        wm.prefix_area_start_index = prefix_area_start_index;
+        wm.suffix_area_start_index = suffix_area_start_index;
+
+        size_t block_size = CalculateBlockSizeAndPopulateWritingMetadata(
+            similarity_chunks, prefix_compression_result, suffix_compression_result, wm,
+            suffix_area_start_index);
+        size_t prefix_summed = block_sizes_pfx_summed.empty()
+                                   ? block_size
+                                   : block_sizes_pfx_summed.back() + block_size;
+        block_sizes_pfx_summed.push_back(prefix_summed);
+        wms.push_back(wm);
+
+        // go on to next block
+        prefix_area_start_index += wm.number_of_prefixes;
+        suffix_area_start_index += wm.number_of_suffixes;
+    }
+    return FSSTPlusSizingResult{wms, block_sizes_pfx_summed};
+}
+
 FSSTPlusCompressionResult FSSTPlusCompress(const size_t n, std::vector<SimilarityChunk> similarity_chunks, CleavedResult cleaved_result) {
     FSSTPlusCompressionResult compression_result{};
 
@@ -112,33 +142,7 @@ FSSTPlusCompressionResult FSSTPlusCompress(const size_t n, std::vector<Similarit
      * allowing us to write block_start_offsets[] and data_end_offset also.
      */
 
-    // First calculate total size of all blocks
-    std::vector<BlockWritingMetadata> wms;
-    std::vector<size_t> prefix_sum_block_sizes;
-
-    size_t prefix_area_start_index = 0; // start index for this block into all prefixes (stored in prefix_compression_result)
-    size_t suffix_area_start_index = 0; // start index for this block into all suffixes (stored in suffix_compression_result)
-
-    while (suffix_area_start_index < n) {
-        // Create fresh metadata for each block
-        BlockWritingMetadata wm;  // Instead of reusing previous metadata
-        wm.prefix_area_start_index = prefix_area_start_index;
-        wm.suffix_area_start_index = suffix_area_start_index;
-
-        size_t block_size = CalculateBlockSizeAndPopulateWritingMetadata(
-            similarity_chunks, prefix_compression_result, suffix_compression_result, wm,
-            suffix_area_start_index);
-        size_t prefix_summed = prefix_sum_block_sizes.empty()
-                                   ? block_size
-                                   : prefix_sum_block_sizes.back() + block_size;
-        prefix_sum_block_sizes.push_back(prefix_summed);
-        wms.push_back(wm);
-
-        // go on to next block
-        prefix_area_start_index += wm.number_of_prefixes;
-        suffix_area_start_index += wm.number_of_suffixes;
-    }
-    
+     FSSTPlusSizingResult sizing_result = SizeEverything(n, similarity_chunks, prefix_compression_result, suffix_compression_result);
     // for (size_t i = 0; i < wms.size(); i++) {
     //     std::cout << "🟪 BLOCK SIZING RESULTS i "
     //     << std::setw(3) << i << ": "
@@ -155,7 +159,7 @@ FSSTPlusCompressionResult FSSTPlusCompress(const size_t n, std::vector<Similarit
     // Now we can write!
 
     // A) write num_blocks
-    size_t n_blocks = prefix_sum_block_sizes.size();
+    size_t n_blocks = sizing_result.block_sizes_pfx_summed.size();
     Store<uint16_t>(n_blocks ,global_header_ptr);
     global_header_ptr+=sizeof(uint16_t);
 
@@ -165,27 +169,27 @@ FSSTPlusCompressionResult FSSTPlusCompress(const size_t n, std::vector<Similarit
         size_t global_header_size_ahead =
                 offsets_to_go * sizeof(uint32_t)
                 + sizeof(uint32_t); // data_end_offset size
-        size_t total_block_size_ahead =  i == 0 ? 0 : prefix_sum_block_sizes[i-1];
+        const size_t total_block_size_ahead =  i == 0 ? 0 : sizing_result.block_sizes_pfx_summed[i-1];
 
         Store<uint32_t>(global_header_size_ahead + total_block_size_ahead, global_header_ptr);
         global_header_ptr +=sizeof(uint32_t);
     }
 
     // C) write data_end_offset
-    Store<uint32_t>(prefix_sum_block_sizes.back() + sizeof(uint32_t) // count itself, so that the "base" begins at the offset's end
+    Store<uint32_t>(sizing_result.block_sizes_pfx_summed.back() + sizeof(uint32_t) // count itself, so that the "base" begins at the offset's end
                     ,global_header_ptr);
     global_header_ptr +=sizeof(uint32_t);
 
     uint8_t* next_block_start_ptr = global_header_ptr;
 
     //  >>> WRITE BLOCKS <<<
-    for (size_t i = 0; i < wms.size(); i++) {
+    for (size_t i = 0; i < sizing_result.wms.size(); i++) {
         // use metadata to write correctly
 
-        // std::cout << "wm.prefix_area_size: " << wms[i].prefix_area_size << "\n";
+        // std::cout << "wm.prefix_area_size: " << sizing_result.wms[i].prefix_area_size << "\n";
 
         // std::cout << "\n🧱 Block " << std::setw(3) << i << " start: " << static_cast<void*>(next_block_start_ptr) << '\n';
-        next_block_start_ptr = WriteBlock(next_block_start_ptr, prefix_compression_result, suffix_compression_result, wms[i]);
+        next_block_start_ptr = WriteBlock(next_block_start_ptr, prefix_compression_result, suffix_compression_result, sizing_result.wms[i]);
     }
 
     // Cleanup

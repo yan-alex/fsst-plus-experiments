@@ -1,6 +1,7 @@
 #pragma once
 #include <vector>
 #include "basic_fsst.h"
+#include "block_types.h"
 #include <cmath>
 struct FSSTPlusCompressionResult {
     fsst_encoder_t *prefix_encoder;
@@ -25,3 +26,8 @@ inline size_t CalcMaxFSSTPlusDataSize(const FSSTCompressionResult &prefix_compre
     result += (nb * 1024); // 1KB extra per blockfor safety TODO: No real reason this should be done but was failing without
     return result;
 }
+
+struct FSSTPlusSizingResult {
+    std::vector<BlockWritingMetadata> wms;
+    std::vector<size_t> block_sizes_pfx_summed;
+};
