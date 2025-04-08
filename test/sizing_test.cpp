@@ -1,9 +1,8 @@
 #include <catch2/catch_test_macros.hpp>
 #include "block_sizer.h" // Includes block_types.h implicitly which defines BlockSizingMetadata and config
 #include "block_types.h" // Explicit include just in case for clarity or if block_sizer changes
-namespace config {
-    constexpr size_t total_strings = 100000; // # of input strings
-    constexpr size_t block_byte_capacity = UINT16_MAX; // ~64KB capacity
+namespace test {
+    constexpr size_t block_granularity = 128;
 }
 
 TEST_CASE("CanFitInBlock()", "[block_sizer]") {
@@ -115,7 +114,7 @@ TEST_CASE("Basic tests CalculateBlockSizeAndPopulateWritingMetadata()", "[block_
         FSSTCompressionResult prefix_compression_result;
         FSSTCompressionResult suffix_compression_result;
         std::vector<SimilarityChunk> similarity_chunks;
-        BlockWritingMetadata wm;
+        BlockWritingMetadata wm(test::block_granularity);
 
         suffix_compression_result.encoded_string_lengths = {10, 10, 10, 10, 10};
         suffix_compression_result.encoded_string_ptrs.resize(5);
@@ -135,7 +134,8 @@ TEST_CASE("Basic tests CalculateBlockSizeAndPopulateWritingMetadata()", "[block_
             prefix_compression_result,
             suffix_compression_result,
             wm,
-            0
+            0,
+            test::block_granularity
         );
         size_t expected_size = sizeof(uint8_t) + // num_strings
                                sizeof(uint16_t) * 5 + // suffix data area offsets
@@ -170,7 +170,7 @@ TEST_CASE("Large scale CalculateBlockSizeAndPopulateWritingMetadata()", "[block_
         FSSTCompressionResult prefix_compression_result;
         FSSTCompressionResult suffix_compression_result;
         std::vector<SimilarityChunk> similarity_chunks;
-        BlockWritingMetadata wm;
+        BlockWritingMetadata wm(test::block_granularity);
 
         // Set up encoded strings with varying lengths to test block capacity limits
         prefix_compression_result.encoded_string_ptrs.resize(num_strings);
@@ -196,7 +196,8 @@ TEST_CASE("Large scale CalculateBlockSizeAndPopulateWritingMetadata()", "[block_
             prefix_compression_result,
             suffix_compression_result,
             wm,
-            0
+            0,
+            test::block_granularity
         );
 
         REQUIRE(block_size < config::block_byte_capacity);

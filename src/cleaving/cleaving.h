@@ -46,7 +46,7 @@ inline void TruncatedSort(std::vector<size_t> &lenIn, std::vector<const unsigned
 }
 
 inline std::vector<SimilarityChunk> FormSimilarityChunks(
-    std::vector<size_t> &lenIn,
+    const std::vector<size_t> &lenIn,
     const std::vector<const unsigned char *> &strIn,
     const size_t start_index,
     const size_t cleaving_run_n) {

@@ -1,4 +1,5 @@
 #pragma once
+#include <block_sizer.h>
 #include <vector>
 #include "basic_fsst.h"
 #include "block_types.h"
@@ -10,6 +11,10 @@ struct FSSTPlusCompressionResult {
     uint8_t *data_end;
 };
 
+struct FSSTPlusSizingResult {
+    std::vector<BlockWritingMetadata> wms;
+    std::vector<size_t> block_sizes_pfx_summed;
+};
 
 inline size_t CalcMaxFSSTPlusDataSize(const FSSTCompressionResult &prefix_compression_result,
                                               const FSSTCompressionResult &suffix_compression_result) {
@@ -27,7 +32,34 @@ inline size_t CalcMaxFSSTPlusDataSize(const FSSTCompressionResult &prefix_compre
     return result;
 }
 
-struct FSSTPlusSizingResult {
+inline FSSTPlusSizingResult SizeEverything(const size_t &n, const std::vector<SimilarityChunk> &similarity_chunks, const FSSTCompressionResult &prefix_compression_result, const FSSTCompressionResult &suffix_compression_result, const size_t &block_granularity) {
+    // First calculate total size of all blocks
     std::vector<BlockWritingMetadata> wms;
     std::vector<size_t> block_sizes_pfx_summed;
+
+    size_t prefix_area_start_index = 0; // start index for this block into all prefixes (stored in prefix_compression_result)
+    size_t suffix_area_start_index = 0; // start index for this block into all suffixes (stored in suffix_compression_result)
+
+    while (suffix_area_start_index < n) {
+        // Create fresh metadata for each block
+        BlockWritingMetadata wm(block_granularity);  // Instead of reusing previous metadata
+        wm.prefix_area_start_index = prefix_area_start_index;
+        wm.suffix_area_start_index = suffix_area_start_index;
+
+        size_t block_size = CalculateBlockSizeAndPopulateWritingMetadata(
+            similarity_chunks, prefix_compression_result, suffix_compression_result, wm,
+            suffix_area_start_index, block_granularity);
+        size_t prefix_summed = block_sizes_pfx_summed.empty()
+                                   ? block_size
+                                   : block_sizes_pfx_summed.back() + block_size;
+        block_sizes_pfx_summed.push_back(prefix_summed);
+        wms.push_back(wm);
+
+        // go on to next block
+        prefix_area_start_index += wm.number_of_prefixes;
+        suffix_area_start_index += wm.number_of_suffixes;
+    }
+    std::cout << "We have this many blocks: " << wms.size();
+    return FSSTPlusSizingResult{wms, block_sizes_pfx_summed};
 };
+

@@ -9,16 +9,14 @@
 #include "basic_fsst.h"
 #include "duckdb_utils.h"
 #include <string>
-#include "block_sizer.h"
 #include "block_writer.h"
 #include "block_decompressor.h"
 #include "cleaving_types.h"
 
 namespace config {
     constexpr size_t total_strings = 100000; // # of input strings
-    constexpr size_t block_byte_capacity = UINT16_MAX; // ~64KB capacity
     constexpr bool print_sorted_corpus = false;
-    constexpr bool print_split_points = false; // prints compressed corpus displaying split points
+    constexpr bool print_split_points = true; // prints compressed corpus displaying split points
     constexpr bool print_decompressed_corpus = false;
 }
 
@@ -69,13 +67,13 @@ StringCollection RetrieveData(const unique_ptr<MaterializedQueryResult> &result,
 }
 
 
-std::vector<SimilarityChunk> FormSimilarityChunks(const size_t &n, StringCollection &input) {
+std::vector<SimilarityChunk> FormBlockwiseSimilarityChunks(const size_t &n, StringCollection &input, const size_t &block_granularity) {
     std::vector<SimilarityChunk> similarity_chunks;
     similarity_chunks.reserve(n);
 
     // Figure out the optimal split points (similarity chunks)
-    for (size_t i = 0; i < n; i += config::block_granularity) {
-        const size_t cleaving_run_n = std::min(input.lengths.size() - i, config::block_granularity);
+    for (size_t i = 0; i < n; i += block_granularity) {
+        const size_t cleaving_run_n = std::min(input.lengths.size() - i, block_granularity);
 
         // std::cout << "Current Cleaving Run coverage: " << i << ":" << i + cleaving_run_n - 1 << std::endl;
 
@@ -90,37 +88,9 @@ std::vector<SimilarityChunk> FormSimilarityChunks(const size_t &n, StringCollect
     return similarity_chunks;
 }
 
-FSSTPlusSizingResult SizeEverything(const size_t &n, std::vector<SimilarityChunk> &similarity_chunks, FSSTCompressionResult &prefix_compression_result, FSSTCompressionResult &suffix_compression_result) {
-    // First calculate total size of all blocks
-    std::vector<BlockWritingMetadata> wms;
-    std::vector<size_t> block_sizes_pfx_summed;
 
-    size_t prefix_area_start_index = 0; // start index for this block into all prefixes (stored in prefix_compression_result)
-    size_t suffix_area_start_index = 0; // start index for this block into all suffixes (stored in suffix_compression_result)
 
-    while (suffix_area_start_index < n) {
-        // Create fresh metadata for each block
-        BlockWritingMetadata wm;  // Instead of reusing previous metadata
-        wm.prefix_area_start_index = prefix_area_start_index;
-        wm.suffix_area_start_index = suffix_area_start_index;
-
-        size_t block_size = CalculateBlockSizeAndPopulateWritingMetadata(
-            similarity_chunks, prefix_compression_result, suffix_compression_result, wm,
-            suffix_area_start_index);
-        size_t prefix_summed = block_sizes_pfx_summed.empty()
-                                   ? block_size
-                                   : block_sizes_pfx_summed.back() + block_size;
-        block_sizes_pfx_summed.push_back(prefix_summed);
-        wms.push_back(wm);
-
-        // go on to next block
-        prefix_area_start_index += wm.number_of_prefixes;
-        suffix_area_start_index += wm.number_of_suffixes;
-    }
-    return FSSTPlusSizingResult{wms, block_sizes_pfx_summed};
-}
-
-FSSTPlusCompressionResult FSSTPlusCompress(const size_t n, std::vector<SimilarityChunk> similarity_chunks, CleavedResult cleaved_result) {
+FSSTPlusCompressionResult FSSTPlusCompress(const size_t n, std::vector<SimilarityChunk> similarity_chunks, CleavedResult cleaved_result, const size_t &block_granularity) {
     FSSTPlusCompressionResult compression_result{};
 
     FSSTCompressionResult prefix_compression_result = FSSTCompress(cleaved_result.prefixes);
@@ -142,17 +112,8 @@ FSSTPlusCompressionResult FSSTPlusCompress(const size_t n, std::vector<Similarit
      * allowing us to write block_start_offsets[] and data_end_offset also.
      */
 
-     FSSTPlusSizingResult sizing_result = SizeEverything(n, similarity_chunks, prefix_compression_result, suffix_compression_result);
-    // for (size_t i = 0; i < wms.size(); i++) {
-    //     std::cout << "🟪 BLOCK SIZING RESULTS i "
-    //     << std::setw(3) << i << ": "
-    //     << ": N Strings: " << std::setw(3) << wms[i].suffix_n_in_block
-    //     << " N Prefixes: " << std::setw(3) << wms[i].prefix_n_in_block
-    //     << " wm.prefix_area_size: " << std::setw(3) << wms[i].prefix_area_size
-    //     << " prefix_area_start_index: " << std::setw(6) <<  wms[i].prefix_area_start_index
-    //     <<" 🟪 \n";
-    //
-    // }
+     FSSTPlusSizingResult sizing_result = SizeEverything(n, similarity_chunks, prefix_compression_result, suffix_compression_result, block_granularity);
+
 
     uint8_t* global_header_ptr = compression_result.data_start;
 
@@ -188,7 +149,7 @@ FSSTPlusCompressionResult FSSTPlusCompress(const size_t n, std::vector<Similarit
 
         // std::cout << "wm.prefix_area_size: " << sizing_result.wms[i].prefix_area_size << "\n";
 
-        // std::cout << "\n🧱 Block " << std::setw(3) << i << " start: " << static_cast<void*>(next_block_start_ptr) << '\n';
+        std::cout << "\n🧱 Block " << std::setw(3) << i << " start: " << static_cast<void*>(next_block_start_ptr) << '\n';
         next_block_start_ptr = WriteBlock(next_block_start_ptr, prefix_compression_result, suffix_compression_result, sizing_result.wms[i]);
     }
 
@@ -334,7 +295,7 @@ int main() {
     // vector<string> datasets = FindDatasets(con, data_dir); //TODO: Uncomment this
     vector<string> datasets = {data_dir + "/NextiaJD/github_issues.parquet"};
 
-    
+    const size_t block_granularity = 128;
     // For each dataset
     for (const auto& dataset_path : datasets) {
 
@@ -411,7 +372,7 @@ int main() {
                     // Start timing
                     auto start_time = std::chrono::high_resolution_clock::now();
 
-                    const std::vector<SimilarityChunk> similarity_chunks = FormSimilarityChunks(n, input);
+                    const std::vector<SimilarityChunk> similarity_chunks = FormBlockwiseSimilarityChunks(n, input, block_granularity);
                     std::cout << "🤓 Similarity Chunks 🤓\n";
                     for (int i = 0; i < similarity_chunks.size(); ++i) {
                         std::cout << "i:" << std::setw(6) << i << " start_index: " << std::setw(6)<< similarity_chunks[i].start_index << " prefix_length: " << std::setw(3) <<similarity_chunks[i].prefix_length << "\n";
@@ -419,7 +380,7 @@ int main() {
 
                     const CleavedResult cleaved_result = Cleave(input.lengths, input.string_ptrs, similarity_chunks, n);
 
-                    const FSSTPlusCompressionResult compression_result = FSSTPlusCompress(n, similarity_chunks, cleaved_result);
+                    const FSSTPlusCompressionResult compression_result = FSSTPlusCompress(n, similarity_chunks, cleaved_result, block_granularity);
 
                     // End timing
                     auto end_time = std::chrono::high_resolution_clock::now();

@@ -26,10 +26,10 @@ inline void WritePrefixArea(const FSSTCompressionResult &prefix_compression_resu
     // std::cout << "wm.prefix_n_in_block: " << wm.prefix_n_in_block << '\n';
 
     for (size_t i = 0; i < wm.number_of_prefixes; i++) {
-        // std::cout << "iteration: " << i << '\n';
+        std::cout << "iteration: " << i << '\n';
 
         const size_t prefix_index = prefix_area_start_index + i;
-        // std::cout << "prefix_index: " << prefix_index << '\n';
+        std::cout << "prefix_index: " << prefix_index << '\n';
         
         // Add bounds checking before accessing the vector
         if (prefix_index >= prefix_compression_result.encoded_string_lengths.size()) {

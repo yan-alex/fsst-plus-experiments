@@ -50,14 +50,15 @@ inline size_t CalculateBlockSizeAndPopulateWritingMetadata(const std::vector<Sim
                                  const FSSTCompressionResult &prefix_compression_result,
                                  const FSSTCompressionResult &suffix_compression_result,
                                  BlockWritingMetadata &wm,
-                                 const size_t suffix_area_start_index) {
+                                 const size_t suffix_area_start_index,
+                                 const size_t block_granularity) {
     BlockSizingMetadata sm;
     // Start with the space for num_strings
     sm.block_size += sizeof(uint8_t);
 
     // Try to fit as many suffixes as possible, up to 128
     size_t strings_to_go = suffix_compression_result.encoded_string_ptrs.size() - suffix_area_start_index;
-    while (wm.number_of_suffixes < std::min(strings_to_go, config::block_granularity)) {
+    while (wm.number_of_suffixes < std::min(strings_to_go, block_granularity)) {
         const size_t suffix_index = suffix_area_start_index + wm.number_of_suffixes; // starts at 0
         const size_t prefix_index =
             FindSimilarityChunkCorrespondingToIndex(suffix_index, similarity_chunks);
