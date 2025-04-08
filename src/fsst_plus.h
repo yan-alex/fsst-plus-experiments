@@ -37,13 +37,11 @@ inline FSSTPlusSizingResult SizeEverything(const size_t &n, const std::vector<Si
     std::vector<BlockWritingMetadata> wms;
     std::vector<size_t> block_sizes_pfx_summed;
 
-    size_t prefix_area_start_index = 0; // start index for this block into all prefixes (stored in prefix_compression_result)
     size_t suffix_area_start_index = 0; // start index for this block into all suffixes (stored in suffix_compression_result)
 
     while (suffix_area_start_index < n) {
         // Create fresh metadata for each block
         BlockWritingMetadata wm(block_granularity);  // Instead of reusing previous metadata
-        wm.prefix_area_start_index = prefix_area_start_index;
         wm.suffix_area_start_index = suffix_area_start_index;
 
         size_t block_size = CalculateBlockSizeAndPopulateWritingMetadata(
@@ -55,8 +53,6 @@ inline FSSTPlusSizingResult SizeEverything(const size_t &n, const std::vector<Si
         block_sizes_pfx_summed.push_back(prefix_summed);
         wms.push_back(wm);
 
-        // go on to next block
-        prefix_area_start_index += wm.number_of_prefixes;
         suffix_area_start_index += wm.number_of_suffixes;
     }
     std::cout << "We have this many blocks: " << wms.size();

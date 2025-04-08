@@ -67,6 +67,10 @@ inline size_t CalculateBlockSizeAndPopulateWritingMetadata(const std::vector<Sim
         if (prefix_index != sm.prefix_last_index_added) {
             if (!TryAddPrefix(sm, wm, prefix_compression_result, prefix_index)) {
                 break;
+            } else {
+                if (wm.prefix_area_start_index == UINT64_MAX) {
+                    wm.prefix_area_start_index = prefix_index;
+                }
             }
         }
 

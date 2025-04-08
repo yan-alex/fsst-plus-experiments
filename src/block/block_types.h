@@ -12,7 +12,7 @@ struct BlockWritingMetadata {
     size_t number_of_prefixes = 0;
     size_t number_of_suffixes = 0;
 
-    size_t prefix_area_start_index = 0; // global index
+    size_t prefix_area_start_index = UINT64_MAX; // initialize unset, set when inserting the first prefix
     size_t suffix_area_start_index = 0; // global index
 
     std::vector<uint16_t> prefix_offsets_from_first_prefix; // from start of first prefix, how many bytes until we reach prefix i
