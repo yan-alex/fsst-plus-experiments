@@ -11,27 +11,6 @@ TEMP_DIR = "/bigstore/yan/temp_fsst"
 # Create temp directory if it doesn't exist
 os.makedirs(TEMP_DIR, exist_ok=True)
 
-def get_compression_method(df, column_name):
-    temp_db_path = os.path.join(TEMP_DIR, "duckdb_compression_choice.db")
-    con = duckdb.connect(temp_db_path)
-    con.execute("PRAGMA force_compression='Auto'")
-    temp_df = df.select(column_name)
-    con.register("temp_view", temp_df)
-    con.execute("CREATE TABLE temp_table AS SELECT * FROM temp_view")
-    con.execute("CHECKPOINT")
-    con.execute("ANALYZE temp_table")
-    storage_info = con.execute("PRAGMA storage_info('temp_table')").fetchall()
-    con.execute("DROP TABLE IF EXISTS temp_table")
-    con.unregister("temp_view")
-    con.close()
-  
-    print(f"Column info: {storage_info[0]}")
-    if storage_info[0][1] == column_name:
-        compression_type = storage_info[0][8]
-        return compression_type
-
-    return None
-
 def refine_dataset(input_path: PurePath, output_path: PurePath):
     print(f"\n\n ⚗️ ⚗️  Refining {str(input_path)} -> {str(output_path)} ⚗️ ⚗️")
     
@@ -41,13 +20,15 @@ def refine_dataset(input_path: PurePath, output_path: PurePath):
     is_bz2 = input_path.name.endswith('.csv.bz2')
     temp_decompressed_path = None
     
+    # Create temporary DuckDB database for dictionary size calculation
+    con = duckdb.connect()
+    
     try:
+        relation = None;
         if file_ext == '.parquet':
-            df = pl.read_parquet(str(input_path))
-            duckdb_reader_clause = f"read_parquet('{str(input_path)}')"
+            relation = con.read_parquet(str(input_path));
         elif file_ext == '.csv':
-            df = pl.read_csv(str(input_path), ignore_errors=True, truncate_ragged_lines=True)
-            duckdb_reader_clause = f"read_csv_auto('{str(input_path)}', header=true, ignore_errors=true)"
+            relation = con.from_csv_auto(str(input_path), header=True, ignore_errors=True);
         elif is_bz2:
             try:
                 print(f"🔍 Reading & Decompressing {str(input_path)}")
@@ -58,10 +39,9 @@ def refine_dataset(input_path: PurePath, output_path: PurePath):
                         temp_f_out.write(f_in.read())
                 
                 print(f"📊 Reading decompressed file: {temp_decompressed_path}")
-                # Add ignore_errors=True to handle parsing issues
-                df = pl.read_csv(temp_decompressed_path, ignore_errors=True, truncate_ragged_lines=True) # Read the decompressed CSV with Polars
-                # Use the decompressed path for DuckDB as well
-                duckdb_reader_clause = f"read_csv_auto('{temp_decompressed_path}', header=true, ignore_errors=true)" 
+                
+                # Use the decompressed path for DuckDB
+                relation = con.from_csv_auto(temp_decompressed_path, header=True, ignore_errors=True);
 
             except Exception as e:
                 # Clean up the temporary file if an error occurs during reading
@@ -74,51 +54,53 @@ def refine_dataset(input_path: PurePath, output_path: PurePath):
                 print(f"🚨 Failed to read DataFrame from {str(input_path)}: {e}. Skipping refinement.")
                 return False
                 raise Exception(f"‼️‼️ Error reading/decompressing {str(input_path)}: {e}")
-                
-        elif file_ext == '.json': # Keep JSON logic if needed, but mark as potentially unhandled by DuckDB section
-            df = pl.read_json(str(input_path))
-            duckdb_reader_clause = None # JSON not handled by DuckDB reader logic below
         else:
             print(f"⚠️ Unsupported file format: {file_ext}")
             return False
-
-        if df is None: # Check if df loading failed for any reason
-            print(f"🚨 Failed to read DataFrame from {str(input_path)}. Skipping refinement.")
+        
+        if relation is None:
+            print(f"⚠️ Failed to read DataFrame from {str(input_path)} (format: {file_ext}). Skipping refinement.")
             return False
         
-        if not duckdb_reader_clause:
-            print(f"⚠️ DuckDB reader clause not set for {str(input_path)} (format: {file_ext}). Skipping DuckDB checks.")
-            # Decide how to proceed if DuckDB checks are skipped. Maybe return False or only use Polars info?
-            # For now, let's skip the file if we can't use DuckDB.
-            return False
-
         # Text column selection criteria
-        text_columns = []
+        columns = relation.columns
+        types = relation.types # DuckDB data types
+        col_types_map = dict(zip(columns, types))
         
-        # Create temporary DuckDB database for dictionary size calculation
-        # temp_db_path = os.path.join(TEMP_DIR, f"temp_db_{os.path.basename(input_path)}_{os.getpid()}.db")
-        con = duckdb.connect()
         
-        for col in df.columns:
-            try:
-                if (df[col].dtype != pl.String and # Not a string column
-                    df[col].null_count() >= df.height / 2 and # More than 50% non-null
-                    df[col].str.len_chars().mean() <= 5): # Avg length <= 5
-                    print(f"Skipping column '{col}")
-                    continue
-            except Exception as e:
-                print(f"🚨⏭️ ERROR, SKIPPING. Error processing column: col:'{col}', error: {e}")
-                continue
+        # Get total row count once
+        count_result = relation.aggregate('count(*)').fetchone()
+        if count_result is None:
+            raise ValueError("Could not get row count from relation.")
+        total_rows = count_result[0]
 
-            # Check if the column is actually a string type in DuckDB to prevent type conversion issues
-            check_type_query = f"SELECT typeof(\"{col}\") FROM {duckdb_reader_clause} LIMIT 1"
-            col_type = con.execute(check_type_query).fetchone()[0].lower()
-            if not ('varchar' in col_type or 'string' in col_type or 'text' in col_type):
-                print(f"Skipping column '{col}' with type '{col_type}' - not a string column")
-                continue
+        if total_rows == 0:
+            print("Relation is empty, no columns to filter.")
+            return False
+
+        text_columns = []
+        for col in columns:
+            col_type = col_types_map[col]
+            col_type_str = str(col_type).upper()
+
+            non_null_count_result = relation.aggregate(f'count("{col}")').fetchone()
+            non_null_count = non_null_count_result[0]
             
-            # Register the data in DuckDB and rename the column to match the query
-            con.execute(f"CREATE OR REPLACE TABLE dictionary_sizer_table AS SELECT \"{col}\" AS THISCOL FROM {duckdb_reader_clause}")
+            avg_len_query = f'avg(length(CAST("{col}" AS VARCHAR)))'
+            avg_len_result = relation.aggregate(avg_len_query).fetchone()
+            avg_len = avg_len_result[0] if avg_len_result and avg_len_result[0] is not None else 0
+            
+            if (col_type_str != 'VARCHAR' or # Not a string column
+                non_null_count < math.ceil(total_rows / 2.0) or # More than 50% non-null
+                avg_len <= 5): # Avg length <= 5
+                print(f"Skipping column '{col}")
+                continue
+        
+
+            # Select the specific column from the existing relation and rename it
+            col_relation = relation.select(f'"{col}" AS THISCOL')
+            # Create the table from this new, single-column relation
+            con.execute("CREATE OR REPLACE TABLE dictionary_sizer_table AS SELECT * FROM col_relation")
             
             # Calculate dictionary encoding statistics
             dict_query = """
@@ -150,11 +132,8 @@ def refine_dataset(input_path: PurePath, output_path: PurePath):
                 continue
             
             # Run FSST compression using our C++ program
-            # try:
             print(f"Running FSST compression on column '{col}'")
-            # Determine the input path for the C++ program
             cpp_input_path = temp_decompressed_path if is_bz2 and temp_decompressed_path else str(input_path)
-            # Ensure input_path is passed to the C++ program, not the temp path
             cmd = ["/export/scratch2/home/yla/fsst-plus-experiments/build/compress_w_basic_fsst", cpp_input_path, col]
             result = subprocess.run(cmd, capture_output=True, text=True)
             
@@ -179,30 +158,23 @@ def refine_dataset(input_path: PurePath, output_path: PurePath):
                 print(f"🚨⏭️ ERROR, SKIPPING. Could not determine FSST size for column '{col}'. Output was:\n {result.stderr}")
                 continue
                 raise Exception(f"‼️‼️ Could not determine FSST size for column '{col}'. Output was:\n {result.stderr}")
-
-            # # Clean up temp file
-            # os.remove(temp_parquet)
-        
-        # Close DuckDB connection and remove temp database
-        con.close()
-        # if os.path.exists(temp_db_path):
-        #     os.remove(temp_db_path)
         
         # Only write the file if there are text columns that meet our criteria
         if text_columns:
             # Ensure the parent directory exists
             output_path.parent.mkdir(parents=True, exist_ok=True)
 
-            df_text = df.select(text_columns)
-            df_text.write_parquet(str(output_path))
+            refined_data = relation.select(text_columns)
+            refined_data.write_parquet(str(output_path))
             print(f"✅ Processed {str(input_path)} -> {str(output_path)}, with columns: {text_columns}")
-
             return True
         else:
             print(f"⏭️ No columns found in {str(input_path)} that match the criteria. Skipping file.")
             return False
-
+      
     finally:
+        con.close()
+        
         # Clean up the temporary decompressed file if it was created
         if temp_decompressed_path and os.path.exists(temp_decompressed_path):
             try:
