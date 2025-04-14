@@ -12,3 +12,4 @@ benchmarking/results/results.parquet
 src/env.h
 __pycache__
 benchmarking/results/results.parquet
+third_party
