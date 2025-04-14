@@ -267,7 +267,7 @@ int main() {
     string db_path = env::project_dir + "/benchmarking/results/benchmark.db";
     
     // Ensure the data directory exists using system commands
-    system(("mkdir -p " + env::project_dir + "benchmarking/data").c_str());
+    system(("mkdir -p " + env::project_dir + "/benchmarking/data").c_str());
     
     // Remove any existing database file to start fresh
     system(("rm -f " + db_path).c_str());
@@ -279,8 +279,8 @@ int main() {
 
     string data_dir = env::project_dir + "/benchmarking/data/refined";
 
-    // vector<string> datasets = FindDatasets(con, data_dir); //TODO: Uncomment
-    vector<string> datasets ={data_dir + "/clickbench.parquet"};
+    vector<string> datasets = FindDatasets(con, data_dir); //TODO: Uncomment
+    // vector<string> datasets ={data_dir + "/clickbench.parquet"};
 
     constexpr size_t block_granularity = 128;
 
@@ -300,8 +300,8 @@ int main() {
         auto columns_result = con.Query("SELECT column_name FROM duckdb_columns() WHERE table_name = 'temp_view'");
         
         try {
-            // vector<string> column_names = GetColumnNames(columns_result);
-            vector<string> column_names = {"URL"};
+            vector<string> column_names = GetColumnNames(columns_result); //TODO: Uncomment
+            // vector<string> column_names = {"URL"};
 
             // For each column
             for (const auto& column_name : column_names) {

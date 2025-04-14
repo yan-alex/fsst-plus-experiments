@@ -96,7 +96,6 @@ def refine_dataset(input_path: PurePath, output_path: PurePath):
                 print(f"Skipping column '{col}")
                 continue
         
-
             # Select the specific column from the existing relation and rename it
             col_relation = relation.select(f'"{col}" AS THISCOL')
             # Create the table from this new, single-column relation
@@ -164,7 +163,13 @@ def refine_dataset(input_path: PurePath, output_path: PurePath):
             # Ensure the parent directory exists
             output_path.parent.mkdir(parents=True, exist_ok=True)
 
-            refined_data = relation.select(text_columns)
+            # Construct comma-separated string for column selection
+            # Quote column names to handle potential special characters
+            select_expr = ", ".join([f'\"{col}\"' for col in text_columns])
+            
+            # Select the final columns using the explicit expression
+            refined_data = relation.select(select_expr)
+            
             refined_data.write_parquet(str(output_path))
             print(f"✅ Processed {str(input_path)} -> {str(output_path)}, with columns: {text_columns}")
             return True
@@ -198,8 +203,8 @@ def process_raw_directory(raw_dir: str = "../../data/raw", output_dir: str = "..
     # Find all matching files with supported extensions
     supported_files = []
     supported_files.extend(raw_path.glob("**/*.parquet"))
-    supported_files.extend(raw_path.glob("**/*.csv"))
-    supported_files.extend(raw_path.glob("**/*.csv.bz2"))
+    # supported_files.extend(raw_path.glob("**/*.csv"))
+    # supported_files.extend(raw_path.glob("**/*.csv.bz2"))
     
     # supported_files.extend(raw_path.glob("**/*.json"))
     
