@@ -94,7 +94,7 @@ inline void RunDictionaryCompression(duckdb::Connection &con, const string &colu
                                std::to_string(0) + ", " +
                                std::to_string(compression_factor) + ", " +
                                std::to_string(n) + ", " +
-                               std::to_string(*total_compressed_size) + ");";
+                               std::to_string(total_string_size) + ");";
 
     try {
         con.Query(insert_query);
