@@ -18,6 +18,9 @@ include_directories(src/block)
 add_executable(fsst_plus src/fsst_plus.cpp)
 target_link_libraries(fsst_plus duckdb fsst)
 
+add_executable(compress_w_basic_fsst src/compress_w_basic_fsst.cpp)
+target_link_libraries(compress_w_basic_fsst duckdb fsst)
+
 # TEST #
 add_executable(cleaving_test test/cleaving_test.cpp)
 target_link_libraries(cleaving_test PRIVATE duckdb fsst Catch2::Catch2WithMain)
@@ -26,10 +29,10 @@ add_executable(binary_search_test test/binary_search_test.cpp)
 target_link_libraries(binary_search_test PRIVATE Catch2::Catch2WithMain)
 
 add_executable(sizing_test test/sizing_test.cpp)
-target_link_libraries(sizing_test PRIVATE Catch2::Catch2WithMain)
+target_link_libraries(sizing_test PRIVATE duckdb fsst Catch2::Catch2WithMain)
 
 add_executable(fsst_plus_test test/fsst_plus_test.cpp)
-target_link_libraries(fsst_plus_test PRIVATE Catch2::Catch2WithMain)
+target_link_libraries(fsst_plus_test PRIVATE duckdb fsst Catch2::Catch2WithMain)
 
 # Catch2
 Include(FetchContent)

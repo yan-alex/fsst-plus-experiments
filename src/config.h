@@ -1,6 +1,7 @@
 #pragma once
 #include <cstddef>
 #include <string>
+#include <cstdint>
 
 namespace config {
     extern const size_t total_strings;

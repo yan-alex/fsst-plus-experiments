@@ -54,12 +54,9 @@ def read_nextia_dataset(file_path):
 
 # Example usage
 if __name__ == "__main__":
-    # Use the command line argument if provided, otherwise use default
-    if len(sys.argv) > 1:
-        file_path = sys.argv[1]
-    else:
-        # Default file path
-        file_path = "benchmarking/data/raw/NextiaJD/Chicago_Crimes_2001_to_2004.csv.bz2"
+
+    file_path = sys.argv[1]
+
     
     # Read the dataset
     df = read_nextia_dataset(file_path)

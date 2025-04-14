@@ -117,7 +117,7 @@ inline void VerifyDecompressionCorrectness(const StringCollection &input, const 
 };
 
 inline FSSTCompressionResult FSSTCompress(StringCollection &input) {
-    const size_t n = input.string_ptrs.size();
+    const size_t n = input.lengths.size();
     // Create FSST encoder
     fsst_encoder_t *encoder = CreateEncoder(input.lengths, input.string_ptrs);
 
@@ -147,7 +147,16 @@ inline FSSTCompressionResult FSSTCompress(StringCollection &input) {
     );
 
     if (number_of_strings_compressed != n) {
-        throw std::logic_error("Number of compressed strings doesn't match number of strings of input\n");
+        // See if all size is zero
+        size_t total_size = 0;
+        for (size_t i = 0; i < input.lengths.size(); i++) {
+            total_size += input.lengths[i];
+        }
+        if (total_size != 0) {
+            throw std::logic_error("Number of compressed strings doesn't match number of strings of input. Compressed " + std::to_string(number_of_strings_compressed) + " strings, expected " + std::to_string(n) + " strings.\n");
+        } else {
+            printf("All strings are empty. Compressed %zu strings, input had %zu strings. \n", number_of_strings_compressed, n);
+        }
     }
     // print_compressed_strings(input.lengths, strIn, lenOut, strOut, num_compressed);
 

@@ -32,6 +32,22 @@ inline size_t CalcMaxFSSTPlusDataSize(const FSSTCompressionResult &prefix_compre
     return result;
 }
 
+inline StringCollection RetrieveData(const unique_ptr<MaterializedQueryResult> &result, unique_ptr<DataChunk> &data_chunk, const size_t &n) {
+    // std::cout << "🔷 " << n << " strings for this symbol table 🔷 \n";
+
+    StringCollection input(n);
+
+    // Use input.data to store actual string contents, ensuring ownership persists
+    while (data_chunk) {
+        // Populate input.data, input.lengths, and input.strings
+        ExtractStringsFromDataChunk(data_chunk, input.data, input.lengths, input.string_ptrs);
+
+        data_chunk = result->Fetch();
+    }
+
+    return input;
+}
+
 inline FSSTPlusSizingResult SizeEverything(const size_t &n, const std::vector<SimilarityChunk> &similarity_chunks, const FSSTCompressionResult &prefix_compression_result, const FSSTCompressionResult &suffix_compression_result, const size_t &block_granularity) {
     // First calculate total size of all blocks
     std::vector<BlockWritingMetadata> wms;

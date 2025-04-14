@@ -50,22 +50,6 @@ const std::vector<const unsigned char *> &string_ptrs_original
     std::cout << "Decompression verified\n";
 }
 
-StringCollection RetrieveData(const unique_ptr<MaterializedQueryResult> &result, unique_ptr<DataChunk> &data_chunk, const size_t &n) {
-    // std::cout << "🔷 " << n << " strings for this symbol table 🔷 \n";
-
-    StringCollection input(n);
-
-    // Use input.data to store actual string contents, ensuring ownership persists
-    while (data_chunk) {
-        // Populate input.data, input.lengths, and input.strings
-        ExtractStringsFromDataChunk(data_chunk, input.data, input.lengths, input.string_ptrs);
-
-        data_chunk = result->Fetch();
-    }
-
-    return input;
-}
-
 
 std::vector<SimilarityChunk> FormBlockwiseSimilarityChunks(const size_t &n, StringCollection &input, const size_t &block_granularity) {
     std::vector<SimilarityChunk> similarity_chunks;
