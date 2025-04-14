@@ -96,12 +96,12 @@ inline size_t CalculateBlockSizeAndPopulateWritingMetadata(const std::vector<Sim
         wm.number_of_suffixes += 1;
     }
 
-    std::cout << "🟪 BLOCK SIZING RESULTS |"
-    << " N Strings: " << std::setw(3) << wm.number_of_suffixes
-    << " N Prefixes: " << std::setw(3) << wm.number_of_prefixes
-    << " wm.prefix_area_size: " << std::setw(3) << wm.prefix_area_size
-    << " prefix_area_start_index: " << std::setw(6) <<  wm.prefix_area_start_index
-    <<" 🟪 \n";
+    // std::cout << "🟪 BLOCK SIZING RESULTS |"
+    // << " N Strings: " << std::setw(3) << wm.number_of_suffixes
+    // << " N Prefixes: " << std::setw(3) << wm.number_of_prefixes
+    // << " wm.prefix_area_size: " << std::setw(3) << wm.prefix_area_size
+    // << " prefix_area_start_index: " << std::setw(6) <<  wm.prefix_area_start_index
+    // <<" 🟪 \n";
 
     return sm.block_size;
 }

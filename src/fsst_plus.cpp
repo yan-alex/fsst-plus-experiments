@@ -16,7 +16,7 @@
 namespace config {
     constexpr size_t total_strings = 100000; // # of input strings
     constexpr bool print_sorted_corpus = false;
-    constexpr bool print_split_points = true; // prints compressed corpus displaying split points
+    constexpr bool print_split_points = false; // prints compressed corpus displaying split points
     constexpr bool print_decompressed_corpus = false;
 }
 
@@ -86,8 +86,10 @@ FSSTPlusCompressionResult FSSTPlusCompress(const size_t n, std::vector<Similarit
     // Allocate the maximum size possible for the corpus
     size_t max_size = CalcMaxFSSTPlusDataSize(prefix_compression_result,suffix_compression_result);
     compression_result.data_start = new uint8_t[max_size];
-    std::cout << "Data should start at: " << static_cast<void*>(compression_result.data_start) << '\n';
-    std::cout << "and end at: " << static_cast<void*>(compression_result.data_start + max_size) << '\n';
+
+    // std::cout << "Data should start at: " << static_cast<void*>(compression_result.data_start) << '\n';
+    // std::cout << "and end at: " << static_cast<void*>(compression_result.data_start + max_size) << '\n';
+
     /*
      *  >>> WRITE GLOBAL HEADER <<<
      *
@@ -133,7 +135,7 @@ FSSTPlusCompressionResult FSSTPlusCompress(const size_t n, std::vector<Similarit
 
         // std::cout << "wm.prefix_area_size: " << sizing_result.wms[i].prefix_area_size << "\n";
 
-        std::cout << "\n🧱 Block " << std::setw(3) << i << " start: " << static_cast<void*>(next_block_start_ptr) << '\n';
+        // std::cout << "\n🧱 Block " << std::setw(3) << i << " start: " << static_cast<void*>(next_block_start_ptr) << '\n';
         next_block_start_ptr = WriteBlock(next_block_start_ptr, prefix_compression_result, suffix_compression_result, sizing_result.wms[i]);
     }
 
@@ -276,10 +278,10 @@ int main() {
 
     string data_dir = env::project_dir + "/benchmarking/data/refined";
 
-    // vector<string> datasets = FindDatasets(con, data_dir); //TODO: Uncomment this
-    vector<string> datasets = {data_dir + "/NextiaJD/github_issues.parquet"};
+    vector<string> datasets = FindDatasets(con, data_dir);
 
-    const size_t block_granularity = 128;
+    constexpr size_t block_granularity = 128;
+
     // For each dataset
     for (const auto& dataset_path : datasets) {
 
@@ -296,9 +298,8 @@ int main() {
         auto columns_result = con.Query("SELECT column_name FROM duckdb_columns() WHERE table_name = 'temp_view'");
         
         try {
-            // vector<string> column_names = GetColumnNames(columns_result);//TODO: Uncomment this
-            vector<string> column_names = {"body"};
-            
+            vector<string> column_names = GetColumnNames(columns_result);
+
             // For each column
             for (const auto& column_name : column_names) {
 
@@ -314,8 +315,9 @@ int main() {
                 global::dataset_folders = dataset_folders;
                 global::dataset = dataset_name;
                 global::column = column_name;
-                global::algo = "fsst_plus";
-                
+
+
+
                 // Query to get column data
                 const string query =
                     "SELECT \"" + column_name + "\" FROM read_parquet('" + dataset_path + "')"
@@ -336,6 +338,17 @@ int main() {
                     
                     StringCollection input = RetrieveData(result, data_chunk, n); // 100k rows
 
+                    size_t total_string_size = {0};
+                    for (const size_t string_length: input.lengths) {
+                        total_string_size += string_length;
+                    }
+
+
+                    std::cout <<"==========START DICTIONARY COMPRESSION=========\n";
+                    global::algo = "dictionary";
+                    // Calc dict compression
+                    RunDictionaryCompression(con, column_name, dataset_path, n, total_string_size);
+
                     // Run Basic FSST for comparison
                     std::cout
                     // <<"===============================================\n"
@@ -343,7 +356,7 @@ int main() {
                     // <<"===============================================\n";
                     global::algo = "basic_fsst";
 
-                    RunBasicFSST(con, input);
+                    RunBasicFSST(con, input, total_string_size);
 
 
                     // Now run FSST Plus
@@ -357,10 +370,10 @@ int main() {
                     auto start_time = std::chrono::high_resolution_clock::now();
 
                     const std::vector<SimilarityChunk> similarity_chunks = FormBlockwiseSimilarityChunks(n, input, block_granularity);
-                    std::cout << "🤓 Similarity Chunks 🤓\n";
-                    for (int i = 0; i < similarity_chunks.size(); ++i) {
-                        std::cout << "i:" << std::setw(6) << i << " start_index: " << std::setw(6)<< similarity_chunks[i].start_index << " prefix_length: " << std::setw(3) <<similarity_chunks[i].prefix_length << "\n";
-                    }
+                    // std::cout << "🤓 Similarity Chunks 🤓\n";
+                    // for (int i = 0; i < similarity_chunks.size(); ++i) {
+                    //     std::cout << "i:" << std::setw(6) << i << " start_index: " << std::setw(6)<< similarity_chunks[i].start_index << " prefix_length: " << std::setw(3) <<similarity_chunks[i].prefix_length << "\n";
+                    // }
 
                     const CleavedResult cleaved_result = Cleave(input.lengths, input.string_ptrs, similarity_chunks, n);
 
@@ -375,12 +388,11 @@ int main() {
                     
 
                     global::run_time_ms = std::chrono::duration<double, std::milli>(end_time - start_time).count();
-                    
-                    size_t input_size = CalculateInputSize(input);
+
                     size_t compressed_size = compression_result.data_end - compression_result.data_start;
-                    global::compression_factor = static_cast<double>(input_size) / compressed_size;
+                    global::compression_factor = static_cast<double>(total_string_size) / compressed_size;
                     
-                    PrintCompressionStats(n, input_size, compressed_size);
+                    PrintCompressionStats(n, total_string_size, compressed_size);
                     
                     // Add results to table
                     string insert_query = "INSERT INTO results VALUES ('" + 
@@ -392,7 +404,7 @@ int main() {
                         std::to_string(global::run_time_ms) + ", " + 
                         std::to_string(global::compression_factor) + ", " + 
                         std::to_string(n) + ", " + 
-                        std::to_string(input_size) + ");";
+                        std::to_string(total_string_size) + ");";
                     
                     try {
                         con.Query(insert_query);
