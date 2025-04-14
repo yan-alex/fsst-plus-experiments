@@ -17,6 +17,7 @@ namespace config {
     constexpr size_t total_strings = 100000; // # of input strings
     constexpr bool print_sorted_corpus = false;
     constexpr bool print_split_points = false; // prints compressed corpus displaying split points
+    constexpr bool print_similarity_chunks = false;
     constexpr bool print_decompressed_corpus = false;
 }
 
@@ -278,7 +279,8 @@ int main() {
 
     string data_dir = env::project_dir + "/benchmarking/data/refined";
 
-    vector<string> datasets = FindDatasets(con, data_dir);
+    // vector<string> datasets = FindDatasets(con, data_dir); //TODO: Uncomment
+    vector<string> datasets ={data_dir + "/clickbench.parquet"};
 
     constexpr size_t block_granularity = 128;
 
@@ -298,7 +300,8 @@ int main() {
         auto columns_result = con.Query("SELECT column_name FROM duckdb_columns() WHERE table_name = 'temp_view'");
         
         try {
-            vector<string> column_names = GetColumnNames(columns_result);
+            // vector<string> column_names = GetColumnNames(columns_result);
+            vector<string> column_names = {"URL"};
 
             // For each column
             for (const auto& column_name : column_names) {
@@ -370,13 +373,17 @@ int main() {
                     auto start_time = std::chrono::high_resolution_clock::now();
 
                     const std::vector<SimilarityChunk> similarity_chunks = FormBlockwiseSimilarityChunks(n, input, block_granularity);
-                    // std::cout << "🤓 Similarity Chunks 🤓\n";
-                    // for (int i = 0; i < similarity_chunks.size(); ++i) {
-                    //     std::cout << "i:" << std::setw(6) << i << " start_index: " << std::setw(6)<< similarity_chunks[i].start_index << " prefix_length: " << std::setw(3) <<similarity_chunks[i].prefix_length << "\n";
-                    // }
 
                     const CleavedResult cleaved_result = Cleave(input.lengths, input.string_ptrs, similarity_chunks, n);
-
+                    if (config::print_similarity_chunks) {
+                        std::cout << "🤓 Similarity Chunks 🤓\n";
+                        for (int i = 0; i < similarity_chunks.size(); ++i) {
+                            std::cout
+                            // << "i:" << std::setw(6) << i
+                            << " start_index: " << std::setw(6)<< similarity_chunks[i].start_index << " prefix_length: " << std::setw(3) <<similarity_chunks[i].prefix_length
+                            << " PREFIX: " << cleaved_result.prefixes.string_ptrs[i] << "\n";
+                        }
+                    }
                     const FSSTPlusCompressionResult compression_result = FSSTPlusCompress(n, similarity_chunks, cleaved_result, block_granularity);
 
                     // End timing
