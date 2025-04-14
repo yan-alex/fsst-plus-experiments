@@ -1,4 +1,3 @@
-import polars as pl
 from pathlib import Path, PurePath
 import os
 import math
@@ -6,7 +5,6 @@ import duckdb
 import tempfile
 import bz2
 import subprocess
-from read_nextia_datasets import read_nextia_dataset
 
 # Define custom temp directory on /bigstore
 TEMP_DIR = "/bigstore/yan/temp_fsst"
@@ -125,7 +123,6 @@ def refine_dataset(input_path: PurePath, output_path: PurePath):
             # Calculate dictionary encoding statistics
             dict_query = """
             SELECT length(string_agg(DISTINCT THISCOL)) as dict_size,  -- Size of dictionary (bytes needed to store all unique strings)
-                    COUNT(*) as count,  -- Total number of rows
                     COUNT(DISTINCT THISCOL) as dist,  -- Number of distinct values
                     CASE WHEN COUNT(DISTINCT THISCOL) = 0 THEN 0 
                          ELSE ceil(log2(COUNT(DISTINCT THISCOL)) / 8) 
@@ -147,7 +144,7 @@ def refine_dataset(input_path: PurePath, output_path: PurePath):
             FROM dictionary_sizer_table
             """
             dict_result = con.execute(dict_query).fetchall()[0]
-            dict_size = dict_result[5]  # total_compressed_size
+            dict_size = dict_result[4]  # total_compressed_size
             if dict_size is None:
                 print(f"⚠️ No dictionary size for column '{col}'. Skipping.")
                 continue
