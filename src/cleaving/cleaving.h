@@ -49,14 +49,14 @@ inline std::vector<SimilarityChunk> FormSimilarityChunks(
     const std::vector<size_t> &lenIn,
     const std::vector<const unsigned char *> &strIn,
     const size_t start_index,
-    const size_t cleaving_run_n) {
-    if (cleaving_run_n == 0) return {}; // No strings to process
+    const size_t size) {
+    if (size == 0) return {}; // No strings to process
 
-    std::vector<size_t> lcp(cleaving_run_n - 1); // LCP between consecutive strings
-    std::vector<std::vector<size_t> > min_lcp(cleaving_run_n, std::vector<size_t>(cleaving_run_n));
+    std::vector<size_t> lcp(size - 1); // LCP between consecutive strings
+    std::vector<std::vector<size_t> > min_lcp(size, std::vector<size_t>(size));
 
     // Precompute LCPs up to config::max_prefix_size characters
-    for (size_t i = 0; i < cleaving_run_n - 1; ++i) {
+    for (size_t i = 0; i < size - 1; ++i) {
         const size_t max_lcp = std::min(std::min(lenIn[start_index + i], lenIn[start_index + i + 1]), config::max_prefix_size);
         size_t l = 0;
         const unsigned char *s1 = strIn[start_index + i];
@@ -68,31 +68,32 @@ inline std::vector<SimilarityChunk> FormSimilarityChunks(
     }
 
     // Precompute min_lcp[i][j]
-    for (size_t i = 0; i < cleaving_run_n; ++i) {
+    for (size_t i = 0; i < size; ++i) {
         min_lcp[i][i] = std::min(lenIn[start_index + i], config::max_prefix_size);
-        for (size_t j = i + 1; j < cleaving_run_n; ++j) {
+        for (size_t j = i + 1; j < size; ++j) {
             min_lcp[i][j] = std::min(min_lcp[i][j - 1], lcp[j - 1]);
         }
     }
 
     // Precompute prefix sums of string lengths (cumulatively adding the length of each element)
-    std::vector<size_t> length_prefix_sum(cleaving_run_n + 1, 0);
-    for (size_t i = 0; i < cleaving_run_n; ++i) {
+    std::vector<size_t> length_prefix_sum(size + 1, 0);
+    for (size_t i = 0; i < size; ++i) {
         length_prefix_sum[i + 1] = length_prefix_sum[i] + lenIn[start_index + i];
     }
 
     constexpr size_t INF = std::numeric_limits<size_t>::max();
-    std::vector<size_t> dp(cleaving_run_n + 1, INF);
-    std::vector<size_t> prev(cleaving_run_n + 1, 0);
-    std::vector<size_t> p_for_i(cleaving_run_n + 1, 0);
+    std::vector<size_t> dp(size + 1, INF);
+    std::vector<size_t> prev(size + 1, 0);
+    std::vector<size_t> p_for_i(size + 1, 0);
 
     dp[0] = 0;
 
     // Dynamic programming to find the optimal partitioning
-    for (size_t i = 1; i <= cleaving_run_n; ++i) {
+    for (size_t i = 1; i <= size; ++i) {
         for (size_t j = 0; j < i; ++j) {
             const size_t min_common_prefix = min_lcp[j][i - 1]; // can be max 128 a.k.a. config::max_prefix_size
-            for (size_t p = 0; p <= min_common_prefix; p += 8) {
+            size_t p = 0;
+            while (p <= min_common_prefix) {
                 const size_t n = i - j;
                 const size_t per_string_overhead = 1 + (p > 0 ? 2 : 0); // 1 because u will always exist, 2 for pointer
                 const size_t overhead = n * per_string_overhead;
@@ -105,13 +106,18 @@ inline std::vector<SimilarityChunk> FormSimilarityChunks(
                     prev[i] = j;
                     p_for_i[i] = p;
                 }
+                if (p < min_common_prefix and p + 8 > min_common_prefix) {
+                    p = min_common_prefix;
+                }else {
+                    p += 8;
+                }
             }
         }
     }
 
     // Reconstruct the chunks and their prefix lengths
     std::vector<SimilarityChunk> chunks;
-    size_t idx = cleaving_run_n;
+    size_t idx = size;
     while (idx > 0) {
         const size_t start_idx = prev[idx];
         const size_t prefix_length = p_for_i[idx];
