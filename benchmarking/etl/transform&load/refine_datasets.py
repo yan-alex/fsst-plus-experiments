@@ -5,6 +5,7 @@ import duckdb
 import tempfile
 import bz2
 import subprocess
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Define custom temp directory on /bigstore
 TEMP_DIR = "/bigstore/yan/temp_fsst"
@@ -189,43 +190,77 @@ def refine_dataset(input_path: PurePath, output_path: PurePath):
                 print(f"⚠️ Error cleaning up temporary file {temp_decompressed_path}: {e}")
 
 def process_raw_directory(raw_dir: str = "../../data/raw", output_dir: str = "../../data/refined"):
-    """Process all Parquet files in the raw directory and its subdirectories"""
+    """Process all supported data files in the raw directory and its subdirectories using multiple threads"""
     raw_path = Path(raw_dir)
     output_path = Path(output_dir)
-    
+
     # Create output directory if it doesn't exist
     output_path.mkdir(parents=True, exist_ok=True)
-    
-    # Process all supported data files recursively
-    processed_count = 0
-    error_count = 0
-    
+
     # Find all matching files with supported extensions
     supported_files = []
     supported_files.extend(raw_path.glob("**/*.parquet"))
-    # supported_files.extend(raw_path.glob("**/*.csv"))
-    # supported_files.extend(raw_path.glob("**/*.csv.bz2"))
-    
+    supported_files.extend(raw_path.glob("**/*.csv"))
+    supported_files.extend(raw_path.glob("**/*.csv.bz2"))
     # supported_files.extend(raw_path.glob("**/*.json"))
-    
+
+    processed_count = 0
+    error_count = 0
+    files_to_process = []
+
+    # Prepare list of files to process, skipping already existing ones
     for data_file in supported_files:
-        # Preserve directory structure
         relative_path = data_file.relative_to(raw_path)
-        # Always save as parquet regardless of input format
         output_file = output_path / relative_path.parent / (relative_path.stem.replace('.csv', '') + '.parquet')
         
-        # Skip if the output file already exists
         if output_file.exists():
             print(f"✅ Already refined {str(data_file)}, file already exists at {str(output_file)}")
             continue
-        
-        found_columns = refine_dataset(data_file, output_file)
-        if found_columns:
-            processed_count += 1
-        else:
-            error_count += 1
+        files_to_process.append((data_file, output_file))
+
+    # Define a helper function for parallel processing
+    def process_single_file(file_paths):
+        data_file, output_file = file_paths
+        try:
+            # refine_dataset returns True if columns were found and file processed, False otherwise
+            return refine_dataset(data_file, output_file)
+        except Exception as e:
+            print(f"🚨🚨 UNHANDLED ERROR processing {data_file}: {e}")
+            return False # Count as an error if an unhandled exception occurs
+
+    # Determine the number of worker threads (adjust as needed, None uses os.cpu_count())
+    # Consider I/O bound nature; more threads might be beneficial
+    max_workers = os.cpu_count() * 2 # Example: Use double the CPU cores
     
-    print(f" 🌐 Macrodata Refinement Complete 🌐 \n {processed_count} files matched the criteria, {error_count} files didn't have compatible columns")
+    print(f"🚀 Starting parallel processing with up to {max_workers} threads for {len(files_to_process)} files...")
+
+    results = []
+    # Use ThreadPoolExecutor to process files in parallel
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all tasks
+        future_to_file = {executor.submit(process_single_file, file_pair): file_pair for file_pair in files_to_process}
+        
+        # Process results as they complete
+        for i, future in enumerate(as_completed(future_to_file)):
+            file_pair = future_to_file[future]
+            data_file, _ = file_pair
+            try:
+                result = future.result() # result is True (success) or False (no columns/error)
+                results.append(result)
+                print(f"🏁 Completed {i + 1}/{len(files_to_process)}: {data_file} -> {'Success' if result else 'Skipped/Error'}")
+            except Exception as exc:
+                print(f"‼️ Exception for {data_file}: {exc}")
+                results.append(False) # Count as error on exception
+
+    # Aggregate results
+    processed_count = sum(results) # Sum of True values
+    error_count = len(files_to_process) - processed_count
+
+    print(f"🌐 Macrodata Refinement Complete 🌐")
+    print(f"Processed {len(files_to_process)} files:")
+    print(f"  ✅ {processed_count} files matched the criteria and were refined.")
+    print(f"  ❌ {error_count} files were skipped (no compatible columns or errors).")
+
 
 if __name__ == "__main__":
-    process_raw_directory() 
+    process_raw_directory()

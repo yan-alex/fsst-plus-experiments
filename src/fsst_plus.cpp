@@ -298,141 +298,137 @@ int main() {
         // Get columns from dataset
         con.Query("CREATE OR REPLACE VIEW temp_view AS SELECT * FROM read_parquet('" + dataset_path + "')");
         auto columns_result = con.Query("SELECT column_name FROM duckdb_columns() WHERE table_name = 'temp_view'");
-        
+        vector<string> column_names;
+
         try {
-            vector<string> column_names = GetColumnNames(columns_result); //TODO: Uncomment
+            column_names = GetColumnNames(columns_result); //TODO: Uncomment
             // vector<string> column_names = {"URL"};
+        } catch (std::exception& e) {
+            std::cerr << "🚨 Error GetColumnNames() with dataset: " << dataset_name << ": " << e.what() << std::endl;
+            std::cerr << "Moving on to the next dataset" << std::endl;
+            continue;
+        }
 
-            // For each column
-            for (const auto& column_name : column_names) {
+        // For each column
+        for (const auto& column_name : column_names) {
 
-                std::cout << "\n🟡> Processing dataset: " << dataset_name << ", column: " << column_name << std::endl;
-                // Skip this column if it's not string
-                if (!ColumnIsStringType(con, column_name)) {
-                    std::cerr<<"Refined column is not string time. This should not happen as refinement should deal with that. Skipping column.";
+            std::cout << "\n🟡> Processing dataset: " << dataset_name << ", column: " << column_name << std::endl;
+            // Skip this column if it's not string
+            if (!ColumnIsStringType(con, column_name)) {
+                std::cerr<<"Refined column is not string time. This should not happen as refinement should deal with that. Skipping column.";
+                continue;
+                // throw std::logic_error("Refined column is not string time. This should not happen as refinement should deal with that. Terminating");
+            }
+
+            // Set global variables for tracking
+            global::dataset_folders = dataset_folders;
+            global::dataset = dataset_name;
+            global::column = column_name;
+
+
+
+            // Query to get column data
+            const string query =
+                "SELECT \"" + column_name + "\" FROM read_parquet('" + dataset_path + "')"
+                "LIMIT " + std::to_string(config::total_strings) + ";";
+            
+            try {
+
+                const auto result = con.Query(query);
+                global::amount_of_rows = result->RowCount();
+
+                auto data_chunk = result->Fetch();
+                if (!data_chunk || data_chunk->size() == 0) {
+                    std::cout << "No data for column: " << column_name << std::endl;
                     continue;
-                    // throw std::logic_error("Refined column is not string time. This should not happen as refinement should deal with that. Terminating");
                 }
 
-                // Set global variables for tracking
-                global::dataset_folders = dataset_folders;
-                global::dataset = dataset_name;
-                global::column = column_name;
+                const size_t n = std::min(config::amount_strings_per_symbol_table, static_cast<size_t>(result->RowCount()));
+                
+                StringCollection input = RetrieveData(result, data_chunk, n); // 100k rows
+
+                size_t total_string_size = {0};
+                for (const size_t string_length: input.lengths) {
+                    total_string_size += string_length;
+                }
 
 
+                std::cout <<"==========START DICTIONARY COMPRESSION=========\n";
+                global::algo = "dictionary";
+                // Calc dict compression
+                RunDictionaryCompression(con, column_name, dataset_path, n, total_string_size);
 
-                // Query to get column data
-                const string query =
-                    "SELECT \"" + column_name + "\" FROM read_parquet('" + dataset_path + "')"
-                    "LIMIT " + std::to_string(config::total_strings) + ";";
+                // Run Basic FSST for comparison
+                std::cout <<"==========START BASIC FSST COMPRESSION=========\n";
+                global::algo = "basic_fsst";
+
+                RunBasicFSST(con, input, total_string_size);
+
+
+                // Now run FSST Plus
+                std::cout <<"==========START FSST PLUS COMPRESSION==========\n";
+                global::algo = "fsst_plus";
+
+                // Start timing
+                auto start_time = std::chrono::high_resolution_clock::now();
+
+                const std::vector<SimilarityChunk> similarity_chunks = FormBlockwiseSimilarityChunks(n, input, block_granularity);
+
+                const CleavedResult cleaved_result = Cleave(input.lengths, input.string_ptrs, similarity_chunks, n);
+                if (config::print_similarity_chunks) {
+                    std::cout << "🤓 Similarity Chunks 🤓\n";
+                    for (int i = 0; i < similarity_chunks.size(); ++i) {
+                        std::cout
+                        // << "i:" << std::setw(6) << i
+                        << " start_index: " << std::setw(6)<< similarity_chunks[i].start_index << " prefix_length: " << std::setw(3) <<similarity_chunks[i].prefix_length
+                        << " PREFIX: " << cleaved_result.prefixes.string_ptrs[i] << "\n";
+                    }
+                }
+                const FSSTPlusCompressionResult compression_result = FSSTPlusCompress(n, similarity_chunks, cleaved_result, block_granularity);
+
+                // End timing
+                auto end_time = std::chrono::high_resolution_clock::now();
+
+                // decompress to check all went well
+                DecompressAll(compression_result.data_start, fsst_decoder(compression_result.prefix_encoder),
+                            fsst_decoder(compression_result.suffix_encoder), input.lengths, input.string_ptrs);
+                
+
+                global::run_time_ms = std::chrono::duration<double, std::milli>(end_time - start_time).count();
+
+                size_t compressed_size = compression_result.data_end - compression_result.data_start;
+                global::compression_factor = static_cast<double>(total_string_size) / compressed_size;
+                
+                PrintCompressionStats(n, total_string_size, compressed_size);
+                
+                // Add results to table
+                string insert_query = "INSERT INTO results VALUES ('" + 
+                    global::dataset_folders + "', '" + 
+                    global::dataset + "', '" + 
+                    global::column + "', '" + 
+                    global::algo + "', " + 
+                    std::to_string(global::amount_of_rows) + ", " + 
+                    std::to_string(global::run_time_ms) + ", " + 
+                    std::to_string(global::compression_factor) + ", " + 
+                    std::to_string(n) + ", " + 
+                    std::to_string(total_string_size) + ");";
                 
                 try {
-
-                    const auto result = con.Query(query);
-                    global::amount_of_rows = result->RowCount();
-
-                    auto data_chunk = result->Fetch();
-                    if (!data_chunk || data_chunk->size() == 0) {
-                        std::cout << "No data for column: " << column_name << std::endl;
-                        continue;
-                    }
-
-                    const size_t n = std::min(config::amount_strings_per_symbol_table, static_cast<size_t>(result->RowCount()));
-                    
-                    StringCollection input = RetrieveData(result, data_chunk, n); // 100k rows
-
-                    size_t total_string_size = {0};
-                    for (const size_t string_length: input.lengths) {
-                        total_string_size += string_length;
-                    }
-
-
-                    std::cout <<"==========START DICTIONARY COMPRESSION=========\n";
-                    global::algo = "dictionary";
-                    // Calc dict compression
-                    RunDictionaryCompression(con, column_name, dataset_path, n, total_string_size);
-
-                    // Run Basic FSST for comparison
-                    std::cout
-                    // <<"===============================================\n"
-                    <<"==========START BASIC FSST COMPRESSION=========\n";
-                    // <<"===============================================\n";
-                    global::algo = "basic_fsst";
-
-                    RunBasicFSST(con, input, total_string_size);
-
-
-                    // Now run FSST Plus
-                    std::cout
-                    // << "===============================================\n" 
-                    <<"==========START FSST PLUS COMPRESSION==========\n";
-                    // << "===============================================\n";
-                    global::algo = "fsst_plus";
-
-                    // Start timing
-                    auto start_time = std::chrono::high_resolution_clock::now();
-
-                    const std::vector<SimilarityChunk> similarity_chunks = FormBlockwiseSimilarityChunks(n, input, block_granularity);
-
-                    const CleavedResult cleaved_result = Cleave(input.lengths, input.string_ptrs, similarity_chunks, n);
-                    if (config::print_similarity_chunks) {
-                        std::cout << "🤓 Similarity Chunks 🤓\n";
-                        for (int i = 0; i < similarity_chunks.size(); ++i) {
-                            std::cout
-                            // << "i:" << std::setw(6) << i
-                            << " start_index: " << std::setw(6)<< similarity_chunks[i].start_index << " prefix_length: " << std::setw(3) <<similarity_chunks[i].prefix_length
-                            << " PREFIX: " << cleaved_result.prefixes.string_ptrs[i] << "\n";
-                        }
-                    }
-                    const FSSTPlusCompressionResult compression_result = FSSTPlusCompress(n, similarity_chunks, cleaved_result, block_granularity);
-
-                    // End timing
-                    auto end_time = std::chrono::high_resolution_clock::now();
-
-                    // decompress to check all went well
-                    DecompressAll(compression_result.data_start, fsst_decoder(compression_result.prefix_encoder),
-                                fsst_decoder(compression_result.suffix_encoder), input.lengths, input.string_ptrs);
-                    
-
-                    global::run_time_ms = std::chrono::duration<double, std::milli>(end_time - start_time).count();
-
-                    size_t compressed_size = compression_result.data_end - compression_result.data_start;
-                    global::compression_factor = static_cast<double>(total_string_size) / compressed_size;
-                    
-                    PrintCompressionStats(n, total_string_size, compressed_size);
-                    
-                    // Add results to table
-                    string insert_query = "INSERT INTO results VALUES ('" + 
-                        global::dataset_folders + "', '" + 
-                        global::dataset + "', '" + 
-                        global::column + "', '" + 
-                        global::algo + "', " + 
-                        std::to_string(global::amount_of_rows) + ", " + 
-                        std::to_string(global::run_time_ms) + ", " + 
-                        std::to_string(global::compression_factor) + ", " + 
-                        std::to_string(n) + ", " + 
-                        std::to_string(total_string_size) + ");";
-                    
-                    try {
-                        con.Query(insert_query);
-                        std::cout << "Inserted result for " << dataset_name << "." << column_name << std::endl;
-                    } catch (std::exception& e) {
-                        std::cerr << "Failed to insert result: " << e.what() << std::endl;
-                    }
-                    
-                    // Cleanup
-                    fsst_destroy(compression_result.prefix_encoder);
-                    fsst_destroy(compression_result.suffix_encoder);
-                    delete[] compression_result.data_start;
+                    con.Query(insert_query);
+                    std::cout << "Inserted result for " << dataset_name << "." << column_name << std::endl;
                 } catch (std::exception& e) {
-                    std::cerr << "Error processing " << dataset_name << "." << column_name << ": " << e.what() << std::endl;
-                    std::cerr << "Moving on to the next dataset" << std::endl;
-                    // return 1;
+                    std::cerr << "Failed to insert result: " << e.what() << std::endl;
                 }
+                
+                // Cleanup
+                fsst_destroy(compression_result.prefix_encoder);
+                fsst_destroy(compression_result.suffix_encoder);
+                delete[] compression_result.data_start;
+            } catch (std::exception& e) {
+                std::cerr << "🚨 Error processing column" << dataset_name << "." << column_name << ": " << e.what() << std::endl;
+                std::cerr << "Moving on to the next column" << std::endl;
+                continue;
             }
-        } catch (std::exception& e) {
-            std::cerr << "Failed to get columns for " << dataset_name << ": " << e.what() << std::endl;
-            return 1;
         }
     }
     
