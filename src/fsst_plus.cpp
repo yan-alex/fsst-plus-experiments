@@ -311,29 +311,25 @@ int main() {
 
         // For each column
         for (const auto& column_name : column_names) {
-
             std::cout << "\n🟡> Processing dataset: " << dataset_name << ", column: " << column_name << std::endl;
-            // Skip this column if it's not string
-            if (!ColumnIsStringType(con, column_name)) {
-                std::cerr<<"Refined column is not string time. This should not happen as refinement should deal with that. Skipping column.";
-                continue;
-                // throw std::logic_error("Refined column is not string time. This should not happen as refinement should deal with that. Terminating");
-            }
+            try {
+                // Skip this column if it's not string
+                if (!ColumnIsStringType(con, column_name)) {
+                    std::cerr<<"Refined column is not string time. This should not happen as refinement should deal with that. Skipping column.";
+                    continue;
+                    // throw std::logic_error("Refined column is not string time. This should not happen as refinement should deal with that. Terminating");
+                }
 
-            // Set global variables for tracking
-            global::dataset_folders = dataset_folders;
-            global::dataset = dataset_name;
-            global::column = column_name;
+                // Set global variables for tracking
+                global::dataset_folders = dataset_folders;
+                global::dataset = dataset_name;
+                global::column = column_name;
 
-
-
-            // Query to get column data
-            const string query =
+                // Query to get column data
+                const string query =
                 "SELECT \"" + column_name + "\" FROM read_parquet('" + dataset_path + "')"
                 "LIMIT " + std::to_string(config::total_strings) + ";";
             
-            try {
-
                 const auto result = con.Query(query);
                 global::amount_of_rows = result->RowCount();
 
