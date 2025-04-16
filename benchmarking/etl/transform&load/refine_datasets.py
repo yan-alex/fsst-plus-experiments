@@ -3,7 +3,6 @@ import os
 import math
 import duckdb
 import tempfile
-import bz2
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -18,8 +17,6 @@ def refine_dataset(input_path: PurePath, output_path: PurePath):
     """Process a single data file using the refinement logic"""
     # Determine file type and read accordingly
     file_ext = input_path.suffix.lower()
-    is_bz2 = input_path.name.endswith('.csv.bz2')
-    temp_decompressed_path = None
     
     # Create temporary DuckDB database for dictionary size calculation
     con = duckdb.connect()
@@ -30,31 +27,6 @@ def refine_dataset(input_path: PurePath, output_path: PurePath):
             relation = con.read_parquet(str(input_path));
         elif file_ext == '.csv':
             relation = con.from_csv_auto(str(input_path), header=True, ignore_errors=True);
-        elif is_bz2:
-            try:
-                print(f"🔍 Reading & Decompressing {str(input_path)}")
-                # Create a temporary file for the decompressed output
-                with tempfile.NamedTemporaryFile(mode='wb', delete=False, dir=TEMP_DIR, suffix='.csv') as temp_f_out:
-                    temp_decompressed_path = temp_f_out.name
-                    with bz2.open(input_path, "rb") as f_in:
-                        temp_f_out.write(f_in.read())
-                
-                print(f"📊 Reading decompressed file: {temp_decompressed_path}")
-                
-                # Use the decompressed path for DuckDB
-                relation = con.from_csv_auto(temp_decompressed_path, header=True, ignore_errors=True);
-
-            except Exception as e:
-                # Clean up the temporary file if an error occurs during reading
-                if temp_decompressed_path and os.path.exists(temp_decompressed_path):
-                    try:
-                        os.remove(temp_decompressed_path)
-                        print(f"🧹 Cleaned up temporary file due to error: {temp_decompressed_path}")
-                    except OSError as cleanup_e:
-                        print(f"⚠️ Error cleaning up temporary file {temp_decompressed_path} after error: {cleanup_e}")
-                print(f"🚨 Failed to read DataFrame from {str(input_path)}: {e}. Skipping refinement.")
-                return False
-                raise Exception(f"‼️‼️ Error reading/decompressing {str(input_path)}: {e}")
         else:
             print(f"⚠️ Unsupported file format: {file_ext}")
             return False
@@ -68,13 +40,13 @@ def refine_dataset(input_path: PurePath, output_path: PurePath):
         types = relation.types # DuckDB data types
         col_types_map = dict(zip(columns, types))
         
+        relation.limit(100000)
         
         # Get total row count once
         count_result = relation.aggregate('count(*)').fetchone()
         if count_result is None:
             raise ValueError("Could not get row count from relation.")
         total_rows = count_result[0]
-
         if total_rows == 0:
             print("Relation is empty, no columns to filter.")
             return False
@@ -133,8 +105,7 @@ def refine_dataset(input_path: PurePath, output_path: PurePath):
             
             # Run FSST compression using our C++ program
             print(f"Running FSST compression on column '{col}'")
-            cpp_input_path = temp_decompressed_path if is_bz2 and temp_decompressed_path else str(input_path)
-            cmd = ["/export/scratch2/home/yla/fsst-plus-experiments/build/compress_w_basic_fsst", cpp_input_path, col]
+            cmd = ["/export/scratch2/home/yla/fsst-plus-experiments/build/compress_w_basic_fsst", str(input_path), col, "100000"]
             result = subprocess.run(cmd, capture_output=True, text=True)
             
             # Parse FSST compressed size from output
@@ -181,13 +152,6 @@ def refine_dataset(input_path: PurePath, output_path: PurePath):
     finally:
         con.close()
         
-        # Clean up the temporary decompressed file if it was created
-        if temp_decompressed_path and os.path.exists(temp_decompressed_path):
-            try:
-                os.remove(temp_decompressed_path)
-                print(f"🧹 Cleaned up temporary file: {temp_decompressed_path}")
-            except OSError as e:
-                print(f"⚠️ Error cleaning up temporary file {temp_decompressed_path}: {e}")
 
 def process_raw_directory(raw_dir: str = "../../data/raw", output_dir: str = "../../data/refined"):
     """Process all supported data files in the raw directory and its subdirectories using multiple threads"""
@@ -201,7 +165,6 @@ def process_raw_directory(raw_dir: str = "../../data/raw", output_dir: str = "..
     supported_files = []
     supported_files.extend(raw_path.glob("**/*.parquet"))
     supported_files.extend(raw_path.glob("**/*.csv"))
-    supported_files.extend(raw_path.glob("**/*.csv.bz2"))
     # supported_files.extend(raw_path.glob("**/*.json"))
 
     processed_count = 0
@@ -254,12 +217,12 @@ def process_raw_directory(raw_dir: str = "../../data/raw", output_dir: str = "..
 
     # Aggregate results
     processed_count = sum(results) # Sum of True values
-    error_count = len(files_to_process) - processed_count
+    skipped_count = len(files_to_process) - processed_count
 
     print(f"🌐 Macrodata Refinement Complete 🌐")
     print(f"Processed {len(files_to_process)} files:")
     print(f"  ✅ {processed_count} files matched the criteria and were refined.")
-    print(f"  ❌ {error_count} files were skipped (no compatible columns or errors).")
+    print(f"  ⏭️ {skipped_count} files were skipped (no compatible columns or errors).")
 
 
 if __name__ == "__main__":

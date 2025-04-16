@@ -74,7 +74,7 @@ inline void VerifyDecompressionCorrectness(const StringCollection &input, const 
         // Allocate decompression buffer
         constexpr size_t BUFFER_SIZE = 1000000;
         unsigned char *result = new unsigned char[BUFFER_SIZE];
-
+        
         size_t decompressed_size = fsst_decompress(
             &decoder, /* IN: use this symbol table for compression. */
             encoded_string_lengths[i],  /* IN: byte-length of compressed string. */
@@ -109,10 +109,14 @@ inline void VerifyDecompressionCorrectness(const StringCollection &input, const 
                 }
                 std::cerr << "]" << std::endl;
             }
-            
+            // Free the result buffer to avoid memory leak
+            delete[] result;
             throw std::logic_error("Decompression mismatch detected. Terminating.");
         }
+        // Free the result buffer to avoid memory leak
+        delete[] result;
     }
+  
     std::cout << "Decompression verified\n";
 };
 

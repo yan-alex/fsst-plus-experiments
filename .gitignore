@@ -8,8 +8,6 @@ cmake-build-debug
 .cursor
 data
 benchmarking/results/benchmark.db
-benchmarking/results/results.parquet
 src/env.h
 __pycache__
-benchmarking/results/results.parquet
 third_party

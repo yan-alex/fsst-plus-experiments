@@ -12,13 +12,14 @@
 #include <cstdio>
 
 int main(int argc, char* argv[]) {
-    if (argc < 3) {
-        std::cerr << "Usage: " << argv[0] << " <dataset_path> <column_name>" << std::endl;
+    if (argc < 4) {
+        std::cerr << "Usage: " << argv[0] << " <dataset_path> <column_name> <amount_strings>" << std::endl;
         return 1;
     }
 
     std::string dataset_path = argv[1];
     std::string column_name = argv[2];
+    std::string amount_strings = argv[3];
 
     try {
         // Connect to DuckDB in-memory database
@@ -51,7 +52,7 @@ int main(int argc, char* argv[]) {
         }
         const string query =
             "SELECT \"" + column_name + "\" FROM " + loader +
-            "LIMIT " + std::to_string(100000) + ";"; // 100000 strings only
+            "LIMIT " + amount_strings + ";";
         
 
         const auto result = con.Query(query);

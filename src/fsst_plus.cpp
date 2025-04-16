@@ -302,7 +302,7 @@ int main() {
 
         try {
             column_names = GetColumnNames(columns_result); //TODO: Uncomment
-            // vector<string> column_names = {"URL"};
+            // column_names = {"URL"};
         } catch (std::exception& e) {
             std::cerr << "🚨 Error GetColumnNames() with dataset: " << dataset_name << ": " << e.what() << std::endl;
             std::cerr << "Moving on to the next dataset" << std::endl;
