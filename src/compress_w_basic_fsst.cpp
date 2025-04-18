@@ -56,7 +56,6 @@ int main(int argc, char* argv[]) {
         
 
         const auto result = con.Query(query);
-        global::amount_of_rows = result->RowCount();
 
         auto data_chunk = result->Fetch();
         if (!data_chunk || data_chunk->size() == 0) {

@@ -12,6 +12,12 @@
 #include "block_writer.h"
 #include "block_decompressor.h"
 #include "cleaving_types.h"
+#include <thread>
+#include <mutex>
+#include <atomic>
+#include <vector>
+#include <queue>
+#include <condition_variable>
 
 namespace config {
     constexpr size_t total_strings = 100000; // # of input strings
@@ -32,9 +38,10 @@ uint8_t *FindBlockStart(uint8_t *block_start_offsets, const int i) {
 void DecompressAll(uint8_t *global_header, const fsst_decoder_t &prefix_decoder,
 const fsst_decoder_t &suffix_decoder,
 const std::vector<size_t> &lengths_original,
-const std::vector<const unsigned char *> &string_ptrs_original
+const std::vector<const unsigned char *> &string_ptrs_original,
+Global &global
 ) {
-    global::global_index = 0; // Reset global index before decompression
+    global.global_index = 0; // Reset global index before decompression
     uint16_t num_blocks = Load<uint16_t>(global_header);
     uint8_t *block_start_offsets = global_header + sizeof(uint16_t);
     for (int i = 0; i < num_blocks; ++i) {
@@ -46,7 +53,7 @@ const std::vector<const unsigned char *> &string_ptrs_original
          */
         const uint8_t *block_stop = FindBlockStart(block_start_offsets, i + 1);
 
-        DecompressBlock(block_start, prefix_decoder, suffix_decoder, block_stop, lengths_original, string_ptrs_original);
+        DecompressBlock(block_start, prefix_decoder, suffix_decoder, block_stop, lengths_original, string_ptrs_original, global);
     }
     std::cout << "Decompression verified\n";
 }
@@ -257,18 +264,21 @@ bool ColumnIsStringType(Connection &con, const string &column_name) {
     return true;
 }
 
-bool process_dataset(Connection &con, const size_t &block_granularity, const string &dataset_path) {
+bool process_dataset(Connection &con, const size_t &block_granularity, const string &dataset_path, int thread_id) {
     // Extract dataset name from path
     string dataset_folders = dataset_path.substr(0, dataset_path.find_last_of("/"));
     string substring = dataset_path.substr(dataset_path.find_last_of("/") + 1);
     string dataset_name = substring.substr(0, substring.find_last_of('.'));
 
+    // Create a unique temp view name for this thread
+    string temp_view_name = "temp_view_" + std::to_string(thread_id);
+
     std::cout<<"dataset_path: "<<dataset_path << "\n";
     std::cout<<"dataset_name: "<< dataset_name << "\n";
 
     // Get columns from dataset
-    con.Query("CREATE OR REPLACE VIEW temp_view AS SELECT * FROM read_parquet('" + dataset_path + "')");
-    auto columns_result = con.Query("SELECT column_name FROM duckdb_columns() WHERE table_name = 'temp_view'");
+    con.Query("CREATE OR REPLACE VIEW " + temp_view_name + " AS SELECT * FROM read_parquet('" + dataset_path + "')");
+    auto columns_result = con.Query("SELECT column_name FROM duckdb_columns() WHERE table_name = '" + temp_view_name + "'");
     vector<string> column_names;
 
     try {
@@ -292,9 +302,10 @@ bool process_dataset(Connection &con, const size_t &block_granularity, const str
             }
 
             // Set global variables for tracking
-            global::dataset_folders = dataset_folders;
-            global::dataset = dataset_name;
-            global::column = column_name;
+            Global global{};
+            global.dataset_folders = dataset_folders;
+            global.dataset = dataset_name;
+            global.column = column_name;
 
             // Query to get column data
             const string query =
@@ -302,7 +313,7 @@ bool process_dataset(Connection &con, const size_t &block_granularity, const str
                     "LIMIT " + std::to_string(config::total_strings) + ";";
 
             const auto result = con.Query(query);
-            global::amount_of_rows = result->RowCount();
+            global.amount_of_rows = result->RowCount();
 
             auto data_chunk = result->Fetch();
             if (!data_chunk || data_chunk->size() == 0) {
@@ -320,20 +331,20 @@ bool process_dataset(Connection &con, const size_t &block_granularity, const str
             }
 
             std::cout <<"==========START DICTIONARY COMPRESSION=========\n";
-            global::algo = "dictionary";
+            global.algo = "dictionary";
             // Calc dict compression
-            RunDictionaryCompression(con, column_name, dataset_path, n, total_string_size);
+            RunDictionaryCompression(con, column_name, dataset_path, n, total_string_size, global);
 
             // Run Basic FSST for comparison
             std::cout <<"==========START BASIC FSST COMPRESSION=========\n";
-            global::algo = "basic_fsst";
+            global.algo = "basic_fsst";
 
-            RunBasicFSST(con, input, total_string_size);
+            RunBasicFSST(con, input, total_string_size, global);
 
 
             // Now run FSST Plus
             std::cout <<"==========START FSST PLUS COMPRESSION==========\n";
-            global::algo = "fsst_plus";
+            global.algo = "fsst_plus";
 
             // Start timing
             auto start_time = std::chrono::high_resolution_clock::now();
@@ -357,25 +368,25 @@ bool process_dataset(Connection &con, const size_t &block_granularity, const str
 
             // decompress to check all went well
             DecompressAll(compression_result.data_start, fsst_decoder(compression_result.prefix_encoder),
-                          fsst_decoder(compression_result.suffix_encoder), input.lengths, input.string_ptrs);
+                          fsst_decoder(compression_result.suffix_encoder), input.lengths, input.string_ptrs, global);
 
 
-            global::run_time_ms = std::chrono::duration<double, std::milli>(end_time - start_time).count();
+            global.run_time_ms = std::chrono::duration<double, std::milli>(end_time - start_time).count();
 
             size_t compressed_size = compression_result.data_end - compression_result.data_start;
-            global::compression_factor = static_cast<double>(total_string_size) / compressed_size;
+            global.compression_factor = static_cast<double>(total_string_size) / compressed_size;
 
             PrintCompressionStats(n, total_string_size, compressed_size);
 
             // Add results to table
             string insert_query = "INSERT INTO results VALUES ('" +
-                                  global::dataset_folders + "', '" +
-                                  global::dataset + "', '" +
-                                  global::column + "', '" +
-                                  global::algo + "', " +
-                                  std::to_string(global::amount_of_rows) + ", " +
-                                  std::to_string(global::run_time_ms) + ", " +
-                                  std::to_string(global::compression_factor) + ", " +
+                                  global.dataset_folders + "', '" +
+                                  global.dataset + "', '" +
+                                  global.column + "', '" +
+                                  global.algo + "', " +
+                                  std::to_string(global.amount_of_rows) + ", " +
+                                  std::to_string(global.run_time_ms) + ", " +
+                                  std::to_string(global.compression_factor) + ", " +
                                   std::to_string(n) + ", " +
                                   std::to_string(total_string_size) + ");";
 
@@ -395,7 +406,60 @@ bool process_dataset(Connection &con, const size_t &block_granularity, const str
             std::cerr << "Moving on to the next column" << std::endl;
         }
     }
+    
+    // Clean up the temp view when done
+    con.Query("DROP VIEW IF EXISTS " + temp_view_name);
     return true;
+}
+
+// Thread-safe queue for distributing datasets to worker threads
+class ThreadSafeQueue {
+private:
+    std::queue<string> queue;
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool done = false;
+
+public:
+    void push(const string& item) {
+        std::unique_lock<std::mutex> lock(mutex);
+        queue.push(item);
+        cv.notify_one();
+    }
+
+    bool pop(string& item) {
+        std::unique_lock<std::mutex> lock(mutex);
+        cv.wait(lock, [this] { return !queue.empty() || done; });
+        
+        if (queue.empty() && done) {
+            return false;
+        }
+        
+        item = queue.front();
+        queue.pop();
+        return true;
+    }
+    
+    void finish() {
+        std::unique_lock<std::mutex> lock(mutex);
+        done = true;
+        cv.notify_all();
+    }
+};
+
+// Thread worker function
+void worker_thread(int thread_id, ThreadSafeQueue& queue, DuckDB& db, const size_t& block_granularity) {
+    // Create a connection for this thread
+    Connection con(db);
+    
+    string dataset_path;
+    while (queue.pop(dataset_path)) {
+        try {
+            process_dataset(con, block_granularity, dataset_path, thread_id);
+        } catch (std::exception& e) {
+            std::cerr << "Thread " << thread_id << " error processing dataset " << dataset_path << ": " << e.what() << std::endl;
+        }
+    }
 }
 
 int main() {
@@ -420,14 +484,31 @@ int main() {
 
     string data_dir = env::project_dir + "/benchmarking/data/refined";
 
-    vector<string> datasets = FindDatasets(con, data_dir); //TODO: Uncomment
-    // vector<string> datasets ={data_dir + "/clickbench.parquet"};
-
+    vector<string> datasets = FindDatasets(con, data_dir);
+    
     constexpr size_t block_granularity = 128;
+    constexpr int num_threads = 192;
 
-    // For each dataset
+    // Create a thread-safe queue for distributing work
+    ThreadSafeQueue dataset_queue;
+    
+    // Fill the queue with datasets
     for (const auto& dataset_path : datasets) {
-        process_dataset(con, block_granularity, dataset_path);
+        dataset_queue.push(dataset_path);
+    }
+    
+    // Create worker threads
+    std::vector<std::thread> threads;
+    for (int i = 0; i < num_threads; i++) {
+        threads.emplace_back(worker_thread, i, std::ref(dataset_queue), std::ref(db), std::ref(block_granularity));
+    }
+    
+    // Signal that no more items will be added to the queue
+    dataset_queue.finish();
+    
+    // Wait for all threads to complete
+    for (auto& thread : threads) {
+        thread.join();
     }
     
     // Save results to parquet file

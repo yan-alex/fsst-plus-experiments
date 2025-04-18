@@ -10,9 +10,9 @@
 inline void DecompressBlock(const uint8_t *block_start, const fsst_decoder_t &prefix_decoder,
 const fsst_decoder_t &suffix_decoder, const uint8_t *block_stop,
 const std::vector<size_t> &lengths_original,
-const std::vector<const unsigned char *> &string_ptrs_original) {
+const std::vector<const unsigned char *> &string_ptrs_original, Global &global) {
     if (config::print_decompressed_corpus) {
-        std::cout << " ------- Block " << global::global_index/128 << "\n";
+        std::cout << " ------- Block " << global.global_index/128 << "\n";
     }
 
     const size_t n_strings = Load<uint8_t>(block_start);
@@ -55,8 +55,8 @@ const std::vector<const unsigned char *> &string_ptrs_original) {
             }
             
             // Test if it's correct!
-            if (decompressed_suffix_size != lengths_original[global::global_index] || !TextMatches(result, string_ptrs_original[global::global_index], decompressed_suffix_size)) {
-                std::cerr << "‼️ ERROR: Decompression mismatch (suffix only) i: "<< i <<":\n"<<"result:   " << result << "\noriginal: " << string_ptrs_original[global::global_index] << "\n";
+            if (decompressed_suffix_size != lengths_original[global.global_index] || !TextMatches(result, string_ptrs_original[global.global_index], decompressed_suffix_size)) {
+                std::cerr << "‼️ ERROR: Decompression mismatch (suffix only) i: "<< i <<":\n"<<"result:   " << result << "\noriginal: " << string_ptrs_original[global.global_index] << "\n";
                 throw std::runtime_error("Decompression mismatch (suffix only)");
             }
         } else {
@@ -88,14 +88,14 @@ const std::vector<const unsigned char *> &string_ptrs_original) {
 
             // Test if it's correct!
             size_t decompressed_size = decompressed_suffix_size + decompressed_prefix_size;
-            if (decompressed_size != lengths_original[global::global_index] || !TextMatches(result, string_ptrs_original[global::global_index], decompressed_suffix_size + decompressed_prefix_size)) {
-                std::cerr << "‼️ ERROR: Decompression mismatch:\n"<<"result:   " << result << "\noriginal: " << string_ptrs_original[global::global_index] << "\n";
+            if (decompressed_size != lengths_original[global.global_index] || !TextMatches(result, string_ptrs_original[global.global_index], decompressed_suffix_size + decompressed_prefix_size)) {
+                std::cerr << "‼️ ERROR: Decompression mismatch:\n"<<"result:   " << result << "\noriginal: " << string_ptrs_original[global.global_index] << "\n";
                 throw std::runtime_error("Decompression mismatch");
             }
 
 
         }
-        global::global_index += 1;
+        global.global_index += 1;
     }
     
     // Free the result buffer to avoid memory leak

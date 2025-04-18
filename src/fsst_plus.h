@@ -75,7 +75,7 @@ inline FSSTPlusSizingResult SizeEverything(const size_t &n, const std::vector<Si
     return FSSTPlusSizingResult{wms, block_sizes_pfx_summed};
 };
 
-inline void RunDictionaryCompression(duckdb::Connection &con, const string &column_name, const string &dataset_path, const size_t &n, const size_t &total_string_size) {
+inline void RunDictionaryCompression(duckdb::Connection &con, const string &column_name, const string &dataset_path, const size_t &n, const size_t &total_string_size, Global &global) {
     // Quote the column name to handle spaces and special characters correctly in the SQL query.
     const string quoted_column_name = "\"" + column_name + "\"";
     const string query = "SELECT length(string_agg(DISTINCT " + quoted_column_name + ")) as dict_size, COUNT(DISTINCT " + quoted_column_name + ") as dist, ceil(log2(dist) / 8) as size_of_code, COUNT(" + quoted_column_name + ") * size_of_code as codes_size, CAST(dict_size + codes_size as BIGINT)  as total_compressed_size FROM read_parquet('"+dataset_path+"');";
@@ -89,11 +89,11 @@ inline void RunDictionaryCompression(duckdb::Connection &con, const string &colu
 
     // Store results in the database
     std::string insert_query = "INSERT INTO results VALUES ('" +
-                               global::dataset_folders + "', '" +
-                               global::dataset + "', '" +
-                               global::column + "', '" +
-                               global::algo + "', " +
-                               std::to_string(global::amount_of_rows) + ", " +
+                               global.dataset_folders + "', '" +
+                               global.dataset + "', '" +
+                               global.column + "', '" +
+                               global.algo + "', " +
+                               std::to_string(global.amount_of_rows) + ", " +
                                std::to_string(0) + ", " +
                                std::to_string(compression_factor) + ", " +
                                std::to_string(n) + ", " +
@@ -101,7 +101,7 @@ inline void RunDictionaryCompression(duckdb::Connection &con, const string &colu
 
     try {
         con.Query(insert_query);
-        std::cout << "Inserted result for " << global::dataset << "." << column_name << std::endl;
+        std::cout << "Inserted result for " << global.dataset << "." << column_name << std::endl;
     } catch (std::exception& e) {
         std::cerr << "🚨 Failed to insert result: " << e.what() << std::endl;
     }

@@ -2,7 +2,7 @@
 #include <cstddef>
 #include <string>
 
-namespace global {
+struct Global {
     size_t global_index = 0;
 
     std::string dataset_folders = "";
@@ -13,4 +13,4 @@ namespace global {
     size_t amount_of_rows = 0;
     double run_time_ms = 0;
     double compression_factor = 0;
-}
+};
