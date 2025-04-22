@@ -4,6 +4,7 @@ import math
 import duckdb
 import tempfile
 import subprocess
+import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Define custom temp directory on /bigstore
@@ -68,35 +69,39 @@ def refine_dataset(input_path: PurePath, output_path: PurePath):
                 avg_len <= 5): # Avg length <= 5
                 print(f"Skipping column '{col}")
                 continue
-        
-            # Select the specific column from the existing relation and rename it
-            col_relation = relation.select(f'"{col}" AS THISCOL')
-            # Create the table from this new, single-column relation
-            con.execute("CREATE OR REPLACE TABLE dictionary_sizer_table AS SELECT * FROM col_relation")
             
-            # Calculate dictionary encoding statistics
-            dict_query = """
-            SELECT length(string_agg(DISTINCT THISCOL)) as dict_size,  -- Size of dictionary (bytes needed to store all unique strings)
-                    COUNT(DISTINCT THISCOL) as dist,  -- Number of distinct values
-                    CASE WHEN COUNT(DISTINCT THISCOL) = 0 THEN 0 
-                         ELSE ceil(log2(COUNT(DISTINCT THISCOL)) / 8) 
-                    END as size_of_code,  -- Bytes needed per dictionary reference (log2 of cardinality)
+            if input_path.name == "clickbench.parquet":
+                text_columns.append(col)
+                print(f"🫡 Adding clickbench column '{col}'. Skipping dictionary size calculation.")
+                continue
+            
+            # col_relation = relation.select(f'"{col}" AS THISCOL')
+            # con.execute("CREATE OR REPLACE TABLE dictionary_sizer_table AS SELECT * FROM col_relation")
+            # dict_query = """
+            # SELECT length(string_agg(DISTINCT THISCOL)) as dict_size,  -- Size of dictionary (bytes needed to store all unique strings)
+            #         COUNT(DISTINCT THISCOL) as dist,  -- Number of distinct values
+            #         CASE WHEN COUNT(DISTINCT THISCOL) = 0 THEN 0 
+            #              ELSE ceil(log2(COUNT(DISTINCT THISCOL)) / 8) 
+            #         END as size_of_code,  -- Bytes needed per dictionary reference (log2 of cardinality)
                     
-                    CASE WHEN COUNT(DISTINCT THISCOL) = 0 THEN 0 
-                         ELSE COUNT(THISCOL) * ceil(log2(COUNT(DISTINCT THISCOL)) / 8) 
-                    END as codes_size,  -- Total size of all dictionary references
+            #         CASE WHEN COUNT(DISTINCT THISCOL) = 0 THEN 0 
+            #              ELSE COUNT(THISCOL) * ceil(log2(COUNT(DISTINCT THISCOL)) / 8) 
+            #         END as codes_size,  -- Total size of all dictionary references
                     
-                    CASE WHEN COUNT(DISTINCT THISCOL) = 0 
-                        THEN CAST(length(string_agg(DISTINCT THISCOL)) as BIGINT) 
-                        ELSE CAST(length(string_agg(DISTINCT THISCOL)) + COUNT(THISCOL) * ceil(log2(COUNT(DISTINCT THISCOL)) / 8) as BIGINT) 
-                    END as total_compressed_size,  -- Dictionary size + references size
+            #         CASE WHEN COUNT(DISTINCT THISCOL) = 0 
+            #             THEN CAST(length(string_agg(DISTINCT THISCOL)) as BIGINT) 
+            #             ELSE CAST(length(string_agg(DISTINCT THISCOL)) + COUNT(THISCOL) * ceil(log2(COUNT(DISTINCT THISCOL)) / 8) as BIGINT) 
+            #         END as total_compressed_size,  -- Dictionary size + references size
                     
-                    format_bytes(CASE WHEN COUNT(DISTINCT THISCOL) = 0 
-                        THEN CAST(length(string_agg(DISTINCT THISCOL)) as BIGINT) 
-                        ELSE CAST(length(string_agg(DISTINCT THISCOL)) + COUNT(THISCOL) * ceil(log2(COUNT(DISTINCT THISCOL)) / 8) as BIGINT) 
-                    END) as formatted  -- Human-readable format of total compressed size
-            FROM dictionary_sizer_table
-            """
+            #         format_bytes(CASE WHEN COUNT(DISTINCT THISCOL) = 0 
+            #             THEN CAST(length(string_agg(DISTINCT THISCOL)) as BIGINT) 
+            #             ELSE CAST(length(string_agg(DISTINCT THISCOL)) + COUNT(THISCOL) * ceil(log2(COUNT(DISTINCT THISCOL)) / 8) as BIGINT) 
+            #         END) as formatted  -- Human-readable format of total compressed size
+            # FROM dictionary_sizer_table
+            # """
+            
+            dict_query = 'SELECT length(string_agg(DISTINCT "' + col + '", \'\')) AS dict_size, COUNT(DISTINCT "' + col + '") AS dist, CASE WHEN COUNT(DISTINCT "' + col + '") = 0 THEN 0 ELSE ceil(log2(COUNT(DISTINCT "' + col + '")) / 8) END AS size_of_code, COUNT("' + col + '") * CASE WHEN COUNT(DISTINCT "' + col + '") = 0 THEN 0 ELSE ceil(log2(COUNT(DISTINCT "' + col + '")) / 8) END AS codes_size, CAST(length(string_agg(DISTINCT "' + col + '", \'\')) + COUNT("' + col + '") * CASE WHEN COUNT(DISTINCT "' + col + '") = 0 THEN 0 ELSE ceil(log2(COUNT(DISTINCT "' + col + '")) / 8) END AS INT) AS total_compressed_size, format_bytes(total_compressed_size) AS formatted, length(string_agg("' + col + '", \'\')) AS raw_size FROM (SELECT * FROM relation LIMIT ' + str(100000) + ')'
+            # print(f"Running query '{dict_query}'")
             dict_result = con.execute(dict_query).fetchall()[0]
             dict_size = dict_result[4]  # total_compressed_size
             if dict_size is None:
@@ -189,6 +194,7 @@ def process_raw_directory(raw_dir: str = "../../data/raw", output_dir: str = "..
             return refine_dataset(data_file, output_file)
         except Exception as e:
             print(f"🚨🚨 UNHANDLED ERROR processing {data_file}: {e}")
+            print(f"Traceback:\n{traceback.format_exc()}")
             return False # Count as an error if an unhandled exception occurs
 
     # Determine the number of worker threads (adjust as needed, None uses os.cpu_count())
@@ -210,7 +216,7 @@ def process_raw_directory(raw_dir: str = "../../data/raw", output_dir: str = "..
             try:
                 result = future.result() # result is True (success) or False (no columns/error)
                 results.append(result)
-                print(f"🏁 Completed {i + 1}/{len(files_to_process)}: {data_file} -> {'Success' if result else 'Skipped/Error'}")
+                print(f"🏁 Completed {i + 1}/{len(files_to_process)}: {data_file} -> {'Success' if result else 'Skipped'}")
             except Exception as exc:
                 print(f"‼️ Exception for {data_file}: {exc}")
                 results.append(False) # Count as error on exception

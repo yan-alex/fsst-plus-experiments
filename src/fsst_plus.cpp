@@ -283,7 +283,7 @@ bool process_dataset(Connection &con, const size_t &block_granularity, const str
 
     try {
         column_names = GetColumnNames(columns_result); //TODO: Uncomment
-        // column_names = {"URL"};
+        // column_names = {"fromUseravatarUrlMedium"};
     } catch (std::exception& e) {
         std::cerr << "🚨 Error GetColumnNames() with dataset: " << dataset_name << ": " << e.what() << std::endl;
         std::cerr << "Moving on to the next dataset" << std::endl;
@@ -374,7 +374,7 @@ bool process_dataset(Connection &con, const size_t &block_granularity, const str
             global.run_time_ms = std::chrono::duration<double, std::milli>(end_time - start_time).count();
 
             size_t compressed_size = compression_result.data_end - compression_result.data_start;
-            global.compression_factor = static_cast<double>(total_string_size) / compressed_size;
+            global.compression_factor = static_cast<double>(total_string_size) / static_cast<double>(compressed_size);
 
             PrintCompressionStats(n, total_string_size, compressed_size);
 
@@ -492,10 +492,11 @@ int main() {
     // Create a thread-safe queue for distributing work
     ThreadSafeQueue dataset_queue;
     
-    // Fill the queue with datasets
-    for (const auto& dataset_path : datasets) {
+    for (const auto& dataset_path : datasets) { //TODO: Uncomment
         dataset_queue.push(dataset_path);
     }
+    // dataset_queue.push("/export/scratch2/home/yla/fsst-plus-experiments/benchmarking/data/refined/NextiaJD/freecodecamp_casual_chatroom.parquet");
+
     
     // Create worker threads
     std::vector<std::thread> threads;

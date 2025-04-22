@@ -52,7 +52,7 @@ int main(int argc, char* argv[]) {
         }
         const string query =
             "SELECT \"" + column_name + "\" FROM " + loader +
-            "LIMIT " + amount_strings + ";";
+            " LIMIT " + amount_strings + ";";
         
 
         const auto result = con.Query(query);

@@ -78,14 +78,16 @@ inline FSSTPlusSizingResult SizeEverything(const size_t &n, const std::vector<Si
 inline void RunDictionaryCompression(duckdb::Connection &con, const string &column_name, const string &dataset_path, const size_t &n, const size_t &total_string_size, Global &global) {
     // Quote the column name to handle spaces and special characters correctly in the SQL query.
     const string quoted_column_name = "\"" + column_name + "\"";
-    const string query = "SELECT length(string_agg(DISTINCT " + quoted_column_name + ")) as dict_size, COUNT(DISTINCT " + quoted_column_name + ") as dist, ceil(log2(dist) / 8) as size_of_code, COUNT(" + quoted_column_name + ") * size_of_code as codes_size, CAST(dict_size + codes_size as BIGINT)  as total_compressed_size FROM read_parquet('"+dataset_path+"');";
+    // const string query = "SELECT length(string_agg(DISTINCT " + quoted_column_name + ")) as dict_size, COUNT(DISTINCT " + quoted_column_name + ") as dist, ceil(log2(dist) / 8) as size_of_code, COUNT(" + quoted_column_name + ") * size_of_code as codes_size, CAST(dict_size + codes_size as BIGINT)  as total_compressed_size FROM read_parquet('"+dataset_path+"');";
+    const string query = "SELECT length(string_agg(DISTINCT " + quoted_column_name + ", '')) AS dict_size, COUNT(DISTINCT " + quoted_column_name + ") AS dist, CASE when dist = 0 then 0 else ceil(log2(dist) / 8) END AS size_of_code, COUNT(" + quoted_column_name + ") * size_of_code AS codes_size, CAST(dict_size + codes_size AS INT) AS total_compressed_size, format_bytes(total_compressed_size) AS formatted, length(string_agg(" + quoted_column_name + ", '')) AS raw_size, FROM (FROM read_parquet('"+dataset_path+"') LIMIT "+std::to_string(n)+");";
+    
     const auto result = con.Query(query);
 
     auto chunk = result->Fetch();
     auto &vector = chunk->data[4];
-    const unsigned long *total_compressed_size = FlatVector::GetData<unsigned long>(vector);
-
-    double compression_factor = static_cast<double>(total_string_size) / *total_compressed_size;
+    const uint32_t *total_compressed_size = FlatVector::GetData<uint32_t>(vector);
+    std::cout<<"Dictionary compressed size" << std::to_string(static_cast<double>(*total_compressed_size))<< std::endl;
+    double compression_factor = static_cast<double>(total_string_size) / static_cast<double>(*total_compressed_size);
 
     // Store results in the database
     std::string insert_query = "INSERT INTO results VALUES ('" +
