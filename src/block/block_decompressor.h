@@ -7,8 +7,8 @@
 #include "../config.h"
 #include "../global.h"
 
-inline void DecompressBlock(const uint8_t *block_start, const fsst_decoder_t &prefix_decoder,
-const fsst_decoder_t &suffix_decoder, const uint8_t *block_stop,
+inline void DecompressBlock(const uint8_t *block_start, const fsst_decoder_t &decoder,
+const uint8_t *block_stop,
 const std::vector<size_t> &lengths_original,
 const std::vector<const unsigned char *> &string_ptrs_original, Global &global) {
     if (config::print_decompressed_corpus) {
@@ -46,7 +46,7 @@ const std::vector<const unsigned char *> &string_ptrs_original, Global &global) 
         if (prefix_length == 0) {
             const uint8_t *encoded_suffix_ptr = suffix_data_area_start + sizeof(uint8_t);
             // suffix only
-            const size_t decompressed_suffix_size = fsst_decompress(&suffix_decoder,
+            const size_t decompressed_suffix_size = fsst_decompress(&decoder,
                             suffix_data_area_length - sizeof(uint8_t),
                             encoded_suffix_ptr, BUFFER_SIZE, result);
             if (config::print_decompressed_corpus) {
@@ -70,13 +70,13 @@ const std::vector<const unsigned char *> &string_ptrs_original, Global &global) 
 
 
             // Step 1) Decompress prefix
-            const size_t decompressed_prefix_size = fsst_decompress(&prefix_decoder, prefix_length,
+            const size_t decompressed_prefix_size = fsst_decompress(&decoder, prefix_length,
                                                                     encoded_prefix_ptr,
                                                                     BUFFER_SIZE, result);
 
 
             // Step 2) Decompress suffix
-            const size_t decompressed_suffix_size = fsst_decompress(&suffix_decoder,
+            const size_t decompressed_suffix_size = fsst_decompress(&decoder,
                                                                     suffix_data_area_length - sizeof(uint8_t) -
                                                                     sizeof(uint16_t),
                                                                     encoded_suffix_ptr,

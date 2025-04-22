@@ -20,11 +20,11 @@
 #include <condition_variable>
 
 namespace config {
-    constexpr size_t total_strings = 100000; // # of input strings
+    constexpr size_t total_strings = 128; // # of input strings
     constexpr bool print_sorted_corpus = false;
     constexpr bool print_split_points = false; // prints compressed corpus displaying split points
     constexpr bool print_similarity_chunks = false;
-    constexpr bool print_decompressed_corpus = false;
+    constexpr bool print_decompressed_corpus = true;
 }
 
 
@@ -35,8 +35,7 @@ uint8_t *FindBlockStart(uint8_t *block_start_offsets, const int i) {
     return block_start;
 }
 
-void DecompressAll(uint8_t *global_header, const fsst_decoder_t &prefix_decoder,
-const fsst_decoder_t &suffix_decoder,
+void DecompressAll(uint8_t *global_header, const fsst_decoder_t &decoder,
 const std::vector<size_t> &lengths_original,
 const std::vector<const unsigned char *> &string_ptrs_original,
 Global &global
@@ -53,7 +52,7 @@ Global &global
          */
         const uint8_t *block_stop = FindBlockStart(block_start_offsets, i + 1);
 
-        DecompressBlock(block_start, prefix_decoder, suffix_decoder, block_stop, lengths_original, string_ptrs_original, global);
+        DecompressBlock(block_start, decoder, block_stop, lengths_original, string_ptrs_original, global);
     }
     std::cout << "Decompression verified\n";
 }
@@ -84,12 +83,10 @@ std::vector<SimilarityChunk> FormBlockwiseSimilarityChunks(const size_t &n, Stri
 
 FSSTPlusCompressionResult FSSTPlusCompress(const size_t n, std::vector<SimilarityChunk> similarity_chunks, CleavedResult cleaved_result, const size_t &block_granularity, fsst_encoder_t *encoder) {
     FSSTPlusCompressionResult compression_result{};
-    
-    FSSTCompressionResult prefix_compression_result = FSSTCompress(cleaved_result.prefixes, encoder);
-    compression_result.prefix_encoder = encoder;
+    compression_result.encoder = encoder;
 
+    FSSTCompressionResult prefix_compression_result = FSSTCompress(cleaved_result.prefixes, encoder);
     FSSTCompressionResult suffix_compression_result = FSSTCompress(cleaved_result.suffixes, encoder);
-    compression_result.suffix_encoder = encoder;
 
     // Allocate the maximum size possible for the corpus
     size_t max_size = CalcMaxFSSTPlusDataSize(prefix_compression_result,suffix_compression_result);
@@ -282,8 +279,8 @@ bool process_dataset(Connection &con, const size_t &block_granularity, const str
     vector<string> column_names;
 
     try {
-        column_names = GetColumnNames(columns_result); //TODO: Uncomment
-        // column_names = {"fromUseravatarUrlMedium"};
+        // column_names = GetColumnNames(columns_result); //TODO: Uncomment
+        column_names = {"URL"};
     } catch (std::exception& e) {
         std::cerr << "🚨 Error GetColumnNames() with dataset: " << dataset_name << ": " << e.what() << std::endl;
         std::cerr << "Moving on to the next dataset" << std::endl;
@@ -369,8 +366,9 @@ bool process_dataset(Connection &con, const size_t &block_granularity, const str
             auto end_time = std::chrono::high_resolution_clock::now();
 
             // decompress to check all went well
-            DecompressAll(compression_result.data_start, fsst_decoder(compression_result.prefix_encoder),
-                          fsst_decoder(compression_result.suffix_encoder), input.lengths, input.string_ptrs, global);
+            fsst_decoder_t decoder = fsst_decoder(&encoder);
+            DecompressAll(compression_result.data_start, decoder,
+                          input.lengths, input.string_ptrs, global);
 
 
             global.run_time_ms = std::chrono::duration<double, std::milli>(end_time - start_time).count();
@@ -400,8 +398,7 @@ bool process_dataset(Connection &con, const size_t &block_granularity, const str
             }
 
             // Cleanup
-            fsst_destroy(compression_result.prefix_encoder);
-            fsst_destroy(compression_result.suffix_encoder);
+            fsst_destroy(compression_result.encoder);
             delete[] compression_result.data_start;
         } catch (std::exception& e) {
             std::cerr << "🚨 Error processing column" << dataset_name << "." << column_name << ": " << e.what() << std::endl;
@@ -497,11 +494,12 @@ int main() {
     // for (const auto& dataset_path : datasets) { //TODO: Uncomment
     //     dataset_queue.push(dataset_path);
     // }
-    dataset_queue.push("/export/scratch2/home/yla/fsst-plus-experiments/benchmarking/data/refined/NextiaJD/freecodecamp_casual_chatroom.parquet");
-    dataset_queue.push("/export/scratch2/home/yla/fsst-plus-experiments/benchmarking/data/refined/NextiaJD/glassdoor.parquet");
-    dataset_queue.push("/export/scratch2/home/yla/fsst-plus-experiments/benchmarking/data/refined/NextiaJD/glassdoor_photos.parquet");
-    dataset_queue.push("/export/scratch2/home/yla/fsst-plus-experiments/benchmarking/data/refined/NextiaJD/github_issues.parquet");
-    dataset_queue.push("/export/scratch2/home/yla/fsst-plus-experiments/benchmarking/data/refined/clickbench.parquet");
+
+    // dataset_queue.push(env::project_dir + "/benchmarking/data/refined/NextiaJD/freecodecamp_casual_chatroom.parquet");
+    // dataset_queue.push(env::project_dir + "/benchmarking/data/refined/NextiaJD/glassdoor.parquet");
+    // dataset_queue.push(env::project_dir + "/benchmarking/data/refined/NextiaJD/glassdoor_photos.parquet");
+    // dataset_queue.push(env::project_dir + "/benchmarking/data/refined/NextiaJD/github_issues.parquet");
+    dataset_queue.push(env::project_dir + "/benchmarking/data/refined/clickbench.parquet");
 
     
     // Create worker threads

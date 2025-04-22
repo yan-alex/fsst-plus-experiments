@@ -5,8 +5,7 @@
 #include "block_types.h"
 #include <cmath>
 struct FSSTPlusCompressionResult {
-    fsst_encoder_t *prefix_encoder;
-    fsst_encoder_t *suffix_encoder;
+    fsst_encoder_t *encoder;
     uint8_t *data_start;
     uint8_t *data_end;
 };
