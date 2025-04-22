@@ -25,7 +25,7 @@ inline void TruncatedSort(std::vector<size_t> &lenIn, std::vector<const unsigned
 
         // Compare truncated strings
         const int cmp = memcmp(strIn[i], strIn[j], std::min(len_i, len_j));
-        return cmp < 0 || (cmp == 0 && len_i < len_j);
+        return cmp < 0 || (cmp == 0 && len_i > len_j);
     });
 
 
