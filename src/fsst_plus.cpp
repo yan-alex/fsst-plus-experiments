@@ -82,14 +82,14 @@ std::vector<SimilarityChunk> FormBlockwiseSimilarityChunks(const size_t &n, Stri
 
 
 
-FSSTPlusCompressionResult FSSTPlusCompress(const size_t n, std::vector<SimilarityChunk> similarity_chunks, CleavedResult cleaved_result, const size_t &block_granularity) {
+FSSTPlusCompressionResult FSSTPlusCompress(const size_t n, std::vector<SimilarityChunk> similarity_chunks, CleavedResult cleaved_result, const size_t &block_granularity, fsst_encoder_t *encoder) {
     FSSTPlusCompressionResult compression_result{};
+    
+    FSSTCompressionResult prefix_compression_result = FSSTCompress(cleaved_result.prefixes, encoder);
+    compression_result.prefix_encoder = encoder;
 
-    FSSTCompressionResult prefix_compression_result = FSSTCompress(cleaved_result.prefixes);
-    compression_result.prefix_encoder = prefix_compression_result.encoder;
-
-    FSSTCompressionResult suffix_compression_result = FSSTCompress(cleaved_result.suffixes);
-    compression_result.suffix_encoder = suffix_compression_result.encoder;
+    FSSTCompressionResult suffix_compression_result = FSSTCompress(cleaved_result.suffixes, encoder);
+    compression_result.suffix_encoder = encoder;
 
     // Allocate the maximum size possible for the corpus
     size_t max_size = CalcMaxFSSTPlusDataSize(prefix_compression_result,suffix_compression_result);
@@ -361,7 +361,9 @@ bool process_dataset(Connection &con, const size_t &block_granularity, const str
                             << " PREFIX: " << cleaved_result.prefixes.string_ptrs[i] << "\n";
                 }
             }
-            const FSSTPlusCompressionResult compression_result = FSSTPlusCompress(n, similarity_chunks, cleaved_result, block_granularity);
+            fsst_encoder_t encoder = CreateEncoder(input.lengths, input.string_ptrs);
+
+            const FSSTPlusCompressionResult compression_result = FSSTPlusCompress(n, similarity_chunks, cleaved_result, block_granularity, &encoder);
 
             // End timing
             auto end_time = std::chrono::high_resolution_clock::now();
@@ -373,7 +375,7 @@ bool process_dataset(Connection &con, const size_t &block_granularity, const str
 
             global.run_time_ms = std::chrono::duration<double, std::milli>(end_time - start_time).count();
 
-            size_t compressed_size = compression_result.data_end - compression_result.data_start;
+            size_t compressed_size = compression_result.data_end - compression_result.data_start + CalcSymbolTableSize(&encoder);
             global.compression_factor = static_cast<double>(total_string_size) / static_cast<double>(compressed_size);
 
             PrintCompressionStats(n, total_string_size, compressed_size);
@@ -487,15 +489,19 @@ int main() {
     vector<string> datasets = FindDatasets(con, data_dir);
     
     constexpr size_t block_granularity = 128;
-    constexpr int num_threads = 192;
+    constexpr int num_threads = 1;
 
     // Create a thread-safe queue for distributing work
     ThreadSafeQueue dataset_queue;
     
-    for (const auto& dataset_path : datasets) { //TODO: Uncomment
-        dataset_queue.push(dataset_path);
-    }
-    // dataset_queue.push("/export/scratch2/home/yla/fsst-plus-experiments/benchmarking/data/refined/NextiaJD/freecodecamp_casual_chatroom.parquet");
+    // for (const auto& dataset_path : datasets) { //TODO: Uncomment
+    //     dataset_queue.push(dataset_path);
+    // }
+    dataset_queue.push("/export/scratch2/home/yla/fsst-plus-experiments/benchmarking/data/refined/NextiaJD/freecodecamp_casual_chatroom.parquet");
+    dataset_queue.push("/export/scratch2/home/yla/fsst-plus-experiments/benchmarking/data/refined/NextiaJD/glassdoor.parquet");
+    dataset_queue.push("/export/scratch2/home/yla/fsst-plus-experiments/benchmarking/data/refined/NextiaJD/glassdoor_photos.parquet");
+    dataset_queue.push("/export/scratch2/home/yla/fsst-plus-experiments/benchmarking/data/refined/NextiaJD/github_issues.parquet");
+    dataset_queue.push("/export/scratch2/home/yla/fsst-plus-experiments/benchmarking/data/refined/clickbench.parquet");
 
     
     // Create worker threads

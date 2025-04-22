@@ -69,7 +69,8 @@ int main(int argc, char* argv[]) {
      
         
         // Run compression with basic FSST
-        FSSTCompressionResult compression_result = FSSTCompress(input);
+        fsst_encoder_t encoder = CreateEncoder(input.lengths, input.string_ptrs);
+        FSSTCompressionResult compression_result = FSSTCompress(input, &encoder);
         size_t total_compressed_size = 0;
         for (size_t i = 0; i < compression_result.encoded_string_lengths.size(); i++) {
             total_compressed_size += compression_result.encoded_string_lengths[i];

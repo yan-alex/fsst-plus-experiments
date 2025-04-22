@@ -12,3 +12,4 @@ src/env.h
 __pycache__
 third_party
 *.pyc
+benchmarking/results/benchmark.db.wal
