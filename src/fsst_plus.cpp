@@ -39,9 +39,9 @@ void DecompressAll(uint8_t *global_header, const fsst_decoder_t &prefix_decoder,
 const fsst_decoder_t &suffix_decoder,
 const std::vector<size_t> &lengths_original,
 const std::vector<const unsigned char *> &string_ptrs_original,
-Global &global
+Metadata &metadata
 ) {
-    global.global_index = 0; // Reset global index before decompression
+    metadata.global_index = 0; // Reset global index before decompression
     uint16_t num_blocks = Load<uint16_t>(global_header);
     uint8_t *block_start_offsets = global_header + sizeof(uint16_t);
     for (int i = 0; i < num_blocks; ++i) {
@@ -53,7 +53,7 @@ Global &global
          */
         const uint8_t *block_stop = FindBlockStart(block_start_offsets, i + 1);
 
-        DecompressBlock(block_start, prefix_decoder, suffix_decoder, block_stop, lengths_original, string_ptrs_original, global);
+        DecompressBlock(block_start, prefix_decoder, suffix_decoder, block_stop, lengths_original, string_ptrs_original, metadata);
     }
     std::cout << "Decompression verified\n";
 }
@@ -264,6 +264,64 @@ bool ColumnIsStringType(Connection &con, const string &column_name) {
     return true;
 }
 
+void RunFSSTPlus(Connection &con, const size_t &block_granularity, Metadata &metadata, const size_t &n, StringCollection &input, const size_t &total_string_size) {
+    // Start timing
+    auto start_time = std::chrono::high_resolution_clock::now();
+
+    const std::vector<SimilarityChunk> similarity_chunks = FormBlockwiseSimilarityChunks(n, input, block_granularity);
+
+    const CleavedResult cleaved_result = Cleave(input.lengths, input.string_ptrs, similarity_chunks, n);
+    if (config::print_similarity_chunks) {
+        std::cout << "🤓 Similarity Chunks 🤓\n";
+        for (int i = 0; i < similarity_chunks.size(); ++i) {
+            std::cout
+                    // << "i:" << std::setw(6) << i
+                    << " start_index: " << std::setw(6)<< similarity_chunks[i].start_index << " prefix_length: " << std::setw(3) <<similarity_chunks[i].prefix_length
+                    << " PREFIX: " << cleaved_result.prefixes.string_ptrs[i] << "\n";
+        }
+    }
+    const FSSTPlusCompressionResult compression_result = FSSTPlusCompress(n, similarity_chunks, cleaved_result, block_granularity);
+
+    // End timing
+    auto end_time = std::chrono::high_resolution_clock::now();
+
+    // decompress to check all went well
+    DecompressAll(compression_result.data_start, fsst_decoder(compression_result.prefix_encoder),
+                  fsst_decoder(compression_result.suffix_encoder), input.lengths, input.string_ptrs, metadata);
+
+
+    metadata.run_time_ms = std::chrono::duration<double, std::milli>(end_time - start_time).count();
+
+    size_t compressed_size = compression_result.data_end - compression_result.data_start;
+    metadata.compression_factor = static_cast<double>(total_string_size) / static_cast<double>(compressed_size);
+
+    PrintCompressionStats(n, total_string_size, compressed_size);
+
+    // Add results to table
+    string insert_query = "INSERT INTO results VALUES ('" +
+                          metadata.dataset_folders + "', '" +
+                          metadata.dataset + "', '" +
+                          metadata.column + "', '" +
+                          metadata.algo + "', " +
+                          std::to_string(metadata.amount_of_rows) + ", " +
+                          std::to_string(metadata.run_time_ms) + ", " +
+                          std::to_string(metadata.compression_factor) + ", " +
+                          std::to_string(n) + ", " +
+                          std::to_string(total_string_size) + ");";
+
+    try {
+        con.Query(insert_query);
+        std::cout << "Inserted result for " << metadata.dataset << "." << metadata.column << std::endl;
+    } catch (std::exception& e) {
+        std::cerr << "Failed to insert result: " << e.what() << std::endl;
+    }
+
+    // Cleanup
+    fsst_destroy(compression_result.prefix_encoder);
+    fsst_destroy(compression_result.suffix_encoder);
+    delete[] compression_result.data_start;
+}
+
 bool process_dataset(Connection &con, const size_t &block_granularity, const string &dataset_path, int thread_id) {
     // Extract dataset name from path
     string dataset_folders = dataset_path.substr(0, dataset_path.find_last_of("/"));
@@ -302,10 +360,10 @@ bool process_dataset(Connection &con, const size_t &block_granularity, const str
             }
 
             // Set global variables for tracking
-            Global global{};
-            global.dataset_folders = dataset_folders;
-            global.dataset = dataset_name;
-            global.column = column_name;
+            Metadata metadata{};
+            metadata.dataset_folders = dataset_folders;
+            metadata.dataset = dataset_name;
+            metadata.column = column_name;
 
             // Query to get column data
             const string query =
@@ -313,7 +371,7 @@ bool process_dataset(Connection &con, const size_t &block_granularity, const str
                     "LIMIT " + std::to_string(config::total_strings) + ";";
 
             const auto result = con.Query(query);
-            global.amount_of_rows = result->RowCount();
+            metadata.amount_of_rows = result->RowCount();
 
             auto data_chunk = result->Fetch();
             if (!data_chunk || data_chunk->size() == 0) {
@@ -331,76 +389,22 @@ bool process_dataset(Connection &con, const size_t &block_granularity, const str
             }
 
             std::cout <<"==========START DICTIONARY COMPRESSION=========\n";
-            global.algo = "dictionary";
+            metadata.algo = "dictionary";
             // Calc dict compression
-            RunDictionaryCompression(con, column_name, dataset_path, n, total_string_size, global);
+            RunDictionaryCompression(con, column_name, dataset_path, n, total_string_size, metadata);
 
             // Run Basic FSST for comparison
             std::cout <<"==========START BASIC FSST COMPRESSION=========\n";
-            global.algo = "basic_fsst";
+            metadata.algo = "basic_fsst";
 
-            RunBasicFSST(con, input, total_string_size, global);
+            RunBasicFSST(con, input, total_string_size, metadata);
 
 
             // Now run FSST Plus
             std::cout <<"==========START FSST PLUS COMPRESSION==========\n";
-            global.algo = "fsst_plus";
+            metadata.algo = "fsst_plus";
 
-            // Start timing
-            auto start_time = std::chrono::high_resolution_clock::now();
-
-            const std::vector<SimilarityChunk> similarity_chunks = FormBlockwiseSimilarityChunks(n, input, block_granularity);
-
-            const CleavedResult cleaved_result = Cleave(input.lengths, input.string_ptrs, similarity_chunks, n);
-            if (config::print_similarity_chunks) {
-                std::cout << "🤓 Similarity Chunks 🤓\n";
-                for (int i = 0; i < similarity_chunks.size(); ++i) {
-                    std::cout
-                            // << "i:" << std::setw(6) << i
-                            << " start_index: " << std::setw(6)<< similarity_chunks[i].start_index << " prefix_length: " << std::setw(3) <<similarity_chunks[i].prefix_length
-                            << " PREFIX: " << cleaved_result.prefixes.string_ptrs[i] << "\n";
-                }
-            }
-            const FSSTPlusCompressionResult compression_result = FSSTPlusCompress(n, similarity_chunks, cleaved_result, block_granularity);
-
-            // End timing
-            auto end_time = std::chrono::high_resolution_clock::now();
-
-            // decompress to check all went well
-            DecompressAll(compression_result.data_start, fsst_decoder(compression_result.prefix_encoder),
-                          fsst_decoder(compression_result.suffix_encoder), input.lengths, input.string_ptrs, global);
-
-
-            global.run_time_ms = std::chrono::duration<double, std::milli>(end_time - start_time).count();
-
-            size_t compressed_size = compression_result.data_end - compression_result.data_start;
-            global.compression_factor = static_cast<double>(total_string_size) / static_cast<double>(compressed_size);
-
-            PrintCompressionStats(n, total_string_size, compressed_size);
-
-            // Add results to table
-            string insert_query = "INSERT INTO results VALUES ('" +
-                                  global.dataset_folders + "', '" +
-                                  global.dataset + "', '" +
-                                  global.column + "', '" +
-                                  global.algo + "', " +
-                                  std::to_string(global.amount_of_rows) + ", " +
-                                  std::to_string(global.run_time_ms) + ", " +
-                                  std::to_string(global.compression_factor) + ", " +
-                                  std::to_string(n) + ", " +
-                                  std::to_string(total_string_size) + ");";
-
-            try {
-                con.Query(insert_query);
-                std::cout << "Inserted result for " << dataset_name << "." << column_name << std::endl;
-            } catch (std::exception& e) {
-                std::cerr << "Failed to insert result: " << e.what() << std::endl;
-            }
-
-            // Cleanup
-            fsst_destroy(compression_result.prefix_encoder);
-            fsst_destroy(compression_result.suffix_encoder);
-            delete[] compression_result.data_start;
+            RunFSSTPlus(con, block_granularity, metadata, n, input, total_string_size);
         } catch (std::exception& e) {
             std::cerr << "🚨 Error processing column" << dataset_name << "." << column_name << ": " << e.what() << std::endl;
             std::cerr << "Moving on to the next column" << std::endl;
@@ -462,6 +466,64 @@ void worker_thread(int thread_id, ThreadSafeQueue& queue, DuckDB& db, const size
     }
 }
 
+void save_results(Connection &con) {
+    // Make sure we can access the results table
+    auto verify_result2 = con.Query("SHOW TABLES");
+    auto verify_chunk2 = verify_result2->Fetch();
+    bool found_results_table2 = false;
+
+    std::cout << "Available tables before saving:" << std::endl;
+    while (verify_chunk2) {
+        // Only access columns that exist
+        size_t num_cols = verify_chunk2->data.size();
+        if (num_cols == 0) {
+            std::cerr << "SHOW TABLES returned no columns" << std::endl;
+            break;
+        }
+
+        // Use the first column as it contains the table name in this case
+        auto table_names = duckdb::FlatVector::GetData<duckdb::string_t>(verify_chunk2->data[0]);
+        for (size_t i = 0; i < verify_chunk2->size(); i++) {
+            std::string table_name = table_names[i].GetString();
+            std::cout << " - " << table_name << std::endl;
+            if (table_name == "results") {
+                found_results_table2 = true;
+            }
+        }
+        verify_chunk2 = verify_result2->Fetch();
+    }
+
+    if (!found_results_table2) {
+        throw std::runtime_error("Results table not found before saving");
+    }
+
+    // Check how many results we have before saving
+    auto count_result = con.Query("SELECT COUNT(*) FROM results");
+    auto count_chunk = count_result->Fetch();
+    size_t result_count = 0;
+    if (count_chunk) {
+        result_count = duckdb::FlatVector::GetData<int64_t>(count_chunk->data[0])[0];
+        std::cout << "Number of benchmark results: " << result_count << std::endl;
+    }
+
+    if (result_count == 0) {
+        std::cout << "Warning: No results to save!" << std::endl;
+        return;
+    }
+
+    // Save results to parquet file
+    string save_query = "COPY results TO '" + env::project_dir + "/benchmarking/results/results.parquet' (FORMAT 'parquet', OVERWRITE TRUE)";
+    con.Query(save_query);
+
+    // Verify the file was created
+    std::ifstream file_check((env::project_dir + "/benchmarking/results/results.parquet").c_str());
+    if (file_check.good()) {
+        std::cout << "Results saved to " << env::project_dir << "/benchmarking/results/results.parquet" << std::endl;
+    } else {
+        std::cerr << "Warning: Results file not found after save operation" << std::endl;
+    }
+}
+
 int main() {
     // Define project directory
     // string project_dir = "/export/scratch2/home/yla/fsst-plus-experiments";
@@ -492,10 +554,16 @@ int main() {
     // Create a thread-safe queue for distributing work
     ThreadSafeQueue dataset_queue;
     
-    for (const auto& dataset_path : datasets) { //TODO: Uncomment
-        dataset_queue.push(dataset_path);
-    }
-    // dataset_queue.push("/export/scratch2/home/yla/fsst-plus-experiments/benchmarking/data/refined/NextiaJD/freecodecamp_casual_chatroom.parquet");
+    // for (const auto& dataset_path : datasets) { //TODO: Uncomment
+    //     dataset_queue.push(dataset_path);
+    // }
+
+    // dataset_queue.push(env::project_dir + "/benchmarking/data/refined/NextiaJD/freecodecamp_casual_chatroom.parquet");
+    // dataset_queue.push(env::project_dir + "/benchmarking/data/refined/NextiaJD/glassdoor.parquet");
+    // dataset_queue.push(env::project_dir + "/benchmarking/data/refined/NextiaJD/glassdoor_photos.parquet");
+    // dataset_queue.push(env::project_dir + "/benchmarking/data/refined/NextiaJD/github_issues.parquet");
+    dataset_queue.push(env::project_dir + "/benchmarking/data/refined/clickbench.parquet");
+
 
     
     // Create worker threads
@@ -514,61 +582,7 @@ int main() {
     
     // Save results to parquet file
     try {
-        // Make sure we can access the results table
-        auto verify_result2 = con.Query("SHOW TABLES");
-        auto verify_chunk2 = verify_result2->Fetch();
-        bool found_results_table2 = false;
-        
-        std::cout << "Available tables before saving:" << std::endl;
-        while (verify_chunk2) {
-            // Only access columns that exist
-            size_t num_cols = verify_chunk2->data.size();
-            if (num_cols == 0) {
-                std::cerr << "SHOW TABLES returned no columns" << std::endl;
-                break;
-            }
-            
-            // Use the first column as it contains the table name in this case
-            auto table_names = duckdb::FlatVector::GetData<duckdb::string_t>(verify_chunk2->data[0]);
-            for (size_t i = 0; i < verify_chunk2->size(); i++) {
-                std::string table_name = table_names[i].GetString();
-                std::cout << " - " << table_name << std::endl;
-                if (table_name == "results") {
-                    found_results_table2 = true;
-                }
-            }
-            verify_chunk2 = verify_result2->Fetch();
-        }
-        
-        if (!found_results_table2) {
-            throw std::runtime_error("Results table not found before saving");
-        }
-        
-        // Check how many results we have before saving
-        auto count_result = con.Query("SELECT COUNT(*) FROM results");
-        auto count_chunk = count_result->Fetch();
-        size_t result_count = 0;
-        if (count_chunk) {
-            result_count = duckdb::FlatVector::GetData<int64_t>(count_chunk->data[0])[0];
-            std::cout << "Number of benchmark results: " << result_count << std::endl;
-        }
-        
-        if (result_count == 0) {
-            std::cout << "Warning: No results to save!" << std::endl;
-            return 0;
-        }
-        
-        // Save results to parquet file
-        string save_query = "COPY results TO '" + env::project_dir + "/benchmarking/results/results.parquet' (FORMAT 'parquet', OVERWRITE TRUE)";
-        con.Query(save_query);
-        
-        // Verify the file was created
-        std::ifstream file_check((env::project_dir + "/benchmarking/results/results.parquet").c_str());
-        if (file_check.good()) {
-            std::cout << "Results saved to " << env::project_dir << "/benchmarking/results/results.parquet" << std::endl;
-        } else {
-            std::cerr << "Warning: Results file not found after save operation" << std::endl;
-        }
+        save_results(con);
     } catch (std::exception& e) {
         std::cerr << "Error saving results: " << e.what() << std::endl;
     }

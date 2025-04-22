@@ -2,7 +2,7 @@
 #include <cstddef>
 #include <string>
 
-struct Global {
+struct Metadata {
     size_t global_index = 0;
 
     std::string dataset_folders = "";
