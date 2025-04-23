@@ -16,3 +16,4 @@ benchmarking/results/benchmark.db.wal
 src/env.h
 third_party/
 *.wal
+third_party/fsst

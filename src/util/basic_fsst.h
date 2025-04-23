@@ -169,11 +169,10 @@ inline FSSTCompressionResult FSSTCompress(StringCollection &input, fsst_encoder_
 }
 
 // Declaration for the function that runs basic FSST compression and prints its results, using the provided DuckDB connection, parquet file path, and limit.
-inline void RunBasicFSST(duckdb::Connection &con, StringCollection &input, const size_t &total_string_size, Global &global) {
-    auto start_time = std::chrono::high_resolution_clock::now();
-    
+inline void RunBasicFSST(duckdb::Connection &con, StringCollection &input, const size_t &total_string_size, Metadata &metadata) {
+    const auto start_time = std::chrono::high_resolution_clock::now();
 
-    global.amount_of_rows = input.data.size();
+    metadata.amount_of_rows = input.data.size();
     
     size_t total_strings_amount = {0};
     size_t total_compressed_string_size = {0};
@@ -210,26 +209,26 @@ inline void RunBasicFSST(duckdb::Connection &con, StringCollection &input, const
     free(compression_result.output_buffer);
 
     
-    global.run_time_ms = std::chrono::duration<double, std::milli>(end_time - start_time).count();
-    global.compression_factor = static_cast<double>(total_string_size) / static_cast<double>(total_compressed_string_size);
+    metadata.run_time_ms = std::chrono::duration<double, std::milli>(end_time - start_time).count();
+    metadata.compression_factor = static_cast<double>(total_string_size) / static_cast<double>(total_compressed_string_size);
     
     PrintCompressionStats(total_strings_amount, total_string_size, total_compressed_string_size);
     
     // Store results in the database
     std::string insert_query = "INSERT INTO results VALUES ('" +
-                               global.dataset_folders + "', '" +
-                               global.dataset + "', '" +
-                               global.column + "', '" +
-                               global.algo + "', " +
-                               std::to_string(global.amount_of_rows) + ", " +
-                               std::to_string(global.run_time_ms) + ", " +
-                               std::to_string(global.compression_factor) + ", " +
+                               metadata.dataset_folders + "', '" +
+                               metadata.dataset + "', '" +
+                               metadata.column + "', '" +
+                               metadata.algo + "', " +
+                               std::to_string(metadata.amount_of_rows) + ", " +
+                               std::to_string(metadata.run_time_ms) + ", " +
+                               std::to_string(metadata.compression_factor) + ", " +
                                std::to_string(total_strings_amount) + ", " +
                                std::to_string(total_string_size) + ");";
         
     try {
         con.Query(insert_query);
-        std::cout << "Inserted result for Basic FSST on " << global.dataset << "." << global.column << std::endl;
+        std::cout << "Inserted result for Basic FSST on " << metadata.dataset << "." << metadata.column << std::endl;
     } catch (std::exception& e) {
         std::cerr << "Failed to insert Basic FSST result: " << e.what() << std::endl;
     }
