@@ -277,14 +277,15 @@ void RunFSSTPlus(Connection &con, const size_t &block_granularity, Metadata &met
                     << " PREFIX: " << cleaved_result.prefixes.string_ptrs[i] << "\n";
         }
     }
-    const FSSTPlusCompressionResult compression_result = FSSTPlusCompress(n, similarity_chunks, cleaved_result, block_granularity);
+    fsst_encoder_t encoder = CreateEncoder(input.lengths, input.string_ptrs);
+
+    const FSSTPlusCompressionResult compression_result = FSSTPlusCompress(n, similarity_chunks, cleaved_result, block_granularity, &encoder);
 
     // End timing
     auto end_time = std::chrono::high_resolution_clock::now();
-
+    fsst_decoder_t decoder = fsst_decoder(&encoder);
     // decompress to check all went well
-    DecompressAll(compression_result.data_start, fsst_decoder(compression_result.prefix_encoder),
-                  fsst_decoder(compression_result.suffix_encoder), input.lengths, input.string_ptrs, metadata);
+    DecompressAll(compression_result.data_start, decoder, input.lengths, input.string_ptrs, metadata);
 
 
     metadata.run_time_ms = std::chrono::duration<double, std::milli>(end_time - start_time).count();
@@ -314,8 +315,7 @@ void RunFSSTPlus(Connection &con, const size_t &block_granularity, Metadata &met
     }
 
     // Cleanup
-    fsst_destroy(compression_result.prefix_encoder);
-    fsst_destroy(compression_result.suffix_encoder);
+    fsst_destroy(compression_result.encoder);
     delete[] compression_result.data_start;
 }
 
