@@ -20,10 +20,10 @@
 #include <condition_variable>
 
 namespace config {
-    constexpr size_t total_strings = 100000; // # of input strings
+    constexpr size_t total_strings = 128; // # of input strings
     constexpr bool print_sorted_corpus = false;
-    constexpr bool print_split_points = false; // prints compressed corpus displaying split points
-    constexpr bool print_similarity_chunks = false;
+    constexpr bool print_split_points = true; // prints compressed corpus displaying split points
+    constexpr bool print_similarity_chunks = true;
     constexpr bool print_decompressed_corpus = false;
 }
 
@@ -85,7 +85,7 @@ std::vector<SimilarityChunk> FormBlockwiseSimilarityChunks(const size_t &n, Stri
 FSSTPlusCompressionResult FSSTPlusCompress(const size_t n, std::vector<SimilarityChunk> similarity_chunks, CleavedResult cleaved_result, const size_t &block_granularity) {
     FSSTPlusCompressionResult compression_result{};
 
-    FSSTCompressionResult prefix_compression_result = FSSTCompress(cleaved_result.prefixes);
+    FSSTCompressionResult prefix_compression_result = FSSTGranularCompressPrefix(cleaved_result.prefixes, similarity_chunks);
     compression_result.prefix_encoder = prefix_compression_result.encoder;
 
     FSSTCompressionResult suffix_compression_result = FSSTCompress(cleaved_result.suffixes);
@@ -108,6 +108,7 @@ FSSTPlusCompressionResult FSSTPlusCompress(const size_t n, std::vector<Similarit
 
      FSSTPlusSizingResult sizing_result = SizeEverything(n, similarity_chunks, prefix_compression_result, suffix_compression_result, block_granularity);
 
+    //TODO: RECTIFY SUFFIX_ENCODED_PREFIX_LENGTHS
 
     uint8_t* global_header_ptr = compression_result.data_start;
 
@@ -271,15 +272,26 @@ void RunFSSTPlus(Connection &con, const size_t &block_granularity, Metadata &met
     const std::vector<SimilarityChunk> similarity_chunks = FormBlockwiseSimilarityChunks(n, input, block_granularity);
 
     const CleavedResult cleaved_result = Cleave(input.lengths, input.string_ptrs, similarity_chunks, n);
+
     if (config::print_similarity_chunks) {
         std::cout << "🤓 Similarity Chunks 🤓\n";
         for (int i = 0; i < similarity_chunks.size(); ++i) {
             std::cout
                     // << "i:" << std::setw(6) << i
-                    << " start_index: " << std::setw(6)<< similarity_chunks[i].start_index << " prefix_length: " << std::setw(3) <<similarity_chunks[i].prefix_length
+                    << " start_index: " << std::setw(6)<< similarity_chunks[i].start_index
                     << " PREFIX: " << cleaved_result.prefixes.string_ptrs[i] << "\n";
+            printf("LENGTHS: [");
+            for (int j = 0; j < similarity_chunks[i].lengths.size(); ++j) {
+                printf("%d", similarity_chunks[i].lengths[j]);
+                if (j != similarity_chunks[i].lengths.size()-1) {
+                    printf(", ");
+                }
+            }
+            printf("]\n");
+
         }
     }
+
     const FSSTPlusCompressionResult compression_result = FSSTPlusCompress(n, similarity_chunks, cleaved_result, block_granularity);
 
     // End timing
@@ -340,8 +352,8 @@ bool process_dataset(Connection &con, const size_t &block_granularity, const str
     vector<string> column_names;
 
     try {
-        column_names = GetColumnNames(columns_result); //TODO: Uncomment
-        // column_names = {"fromUseravatarUrlMedium"};
+        // column_names = GetColumnNames(columns_result); //TODO: Uncomment
+        column_names = {"URL"};
     } catch (std::exception& e) {
         std::cerr << "🚨 Error GetColumnNames() with dataset: " << dataset_name << ": " << e.what() << std::endl;
         std::cerr << "Moving on to the next dataset" << std::endl;

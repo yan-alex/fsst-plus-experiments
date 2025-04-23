@@ -120,16 +120,40 @@ inline std::vector<SimilarityChunk> FormSimilarityChunks(
     size_t idx = size;
     while (idx > 0) {
         const size_t start_idx = prev[idx];
-        const size_t prefix_length = p_for_i[idx];
+        // const size_t prefix_length = p_for_i[idx]; // TODO: WE SKIP IT FOR NOW. FIND A NICER WAY TO DO IT LATER
         SimilarityChunk chunk;
         chunk.start_index = start_index + start_idx;
-        chunk.prefix_length = prefix_length;
+        // chunk.prefix_length = prefix_length; // TODO: WE SKIP IT FOR NOW. FIND A NICER WAY TO DO IT LATER
         chunks.push_back(chunk);
         idx = start_idx;
     }
     // The chunks are reversed, so we need to reverse them back
     std::reverse(chunks.begin(), chunks.end());
 
+    // TODO: NOW DETERMINE LENGTHS (TEMPORARY SIMPLE SOLUTION)
+    for (size_t i = 0; i < chunks.size(); i++) {
+        SimilarityChunk &chunk = chunks[i];
+        const size_t stop_index = i == chunks.size() - 1
+                                      ? lenIn.size()
+                                      : chunks[i + 1].start_index;
+
+        size_t prefix_length = lenIn[chunk.start_index];
+        const unsigned char * prefix_ptr = strIn[chunk.start_index];
+
+        chunk.lengths.push_back(prefix_length);
+        for (int j = chunk.start_index+1; j < stop_index; ++j) {
+            assert(lenIn[j] <= prefix_length); // this should hold since we sorted higher length first
+            size_t shared_length = std::min(lenIn[j], prefix_length);
+            size_t matching_chars = shared_length;
+            for (int k = 0; k < shared_length; ++k) {
+                if (strIn[j][k] != prefix_ptr[k]) {
+                    matching_chars = k;
+                    break;
+                }
+            }
+            chunk.lengths.push_back(matching_chars);
+        }
+    }
     return chunks;
 }
 
@@ -152,15 +176,16 @@ inline CleavedResult Cleave(const std::vector<size_t> &lenIn,
                                       : similarity_chunks[i + 1].start_index;
 
         // Prefix
-        pl->push_back(chunk.prefix_length);
+        pl->push_back(chunk.lengths[0]); // TODO: WRONG
         ps->push_back(strIn[chunk.start_index]);
 
         for (size_t j = chunk.start_index; j < stop_index; j++) {
             // Suffix
-            sl->push_back(lenIn[j] - chunk.prefix_length);
-            ss->push_back(strIn[j] + chunk.prefix_length);
+            size_t prefix_length = chunk.lengths[j-chunk.start_index];
+            sl->push_back(lenIn[j] - prefix_length); // should be 0 for first one
+            ss->push_back(strIn[j] + prefix_length);
             if (config::print_split_points) {
-                PrintStringWithSplitPoints(strIn, *sl, *ss, chunk, j);
+                PrintStringWithSplitPoints(strIn, *sl, *ss, chunk, j, prefix_length);
             }
         }
     }

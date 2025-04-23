@@ -5,7 +5,12 @@
 
 struct SimilarityChunk {
     size_t start_index; // Starts here and goes on until next chunk's index, or until the end of the 128 block
-    size_t prefix_length;
+
+    /*
+     * The first one is always the full length, as it will be the prefix written.
+     * Then the following lengths indicate how much of the first one to use.
+     */
+    std::vector<size_t> lengths;
 };
 
 // Common base struct for Prefixes and Suffixes

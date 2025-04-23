@@ -25,10 +25,11 @@ inline void PrintStringWithSplitPoints(
     const std::vector<size_t> &suffixLenIn,
     const std::vector<const unsigned char *> &suffixStrIn,
     const SimilarityChunk &chunk,
-    const size_t string_index
+    const size_t &string_index,
+    const size_t &prefix_length
 ) {
     std::cout << "string" << string_index << ": ";
-    for (size_t j = 0; j < chunk.prefix_length; j++) {
+    for (size_t j = 0; j < prefix_length; j++) {
         std::cout << strIn[chunk.start_index][j];
     }
     std::cout << "✳️"; // ✳️ = split point

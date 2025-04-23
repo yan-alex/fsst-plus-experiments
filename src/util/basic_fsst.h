@@ -120,6 +120,62 @@ inline void VerifyDecompressionCorrectness(const StringCollection &input, const 
     std::cout << "Decompression verified\n";
 };
 
+inline FSSTCompressionResult FSSTGranularCompressPrefix(StringCollection &input, std::vector<SimilarityChunk> &similarity_chunks) {
+    const size_t n = input.lengths.size();
+    // Create FSST encoder
+    fsst_encoder_t *encoder = CreateEncoder(input.lengths, input.string_ptrs);
+    
+    // Compression outputs
+    std::vector<size_t> lenOut(n);
+    std::vector<unsigned char *> strOut(n);
+    
+    // Calculate worst-case output size (2 * input) + datastructure overhead
+    size_t max_out_size = 0;
+    for (size_t i = 0; i < n; i++) {
+        max_out_size += input.lengths[i];
+    }
+    max_out_size = max_out_size * 5; // *5 to cover datastructure overhead just in case
+    unsigned char *output = static_cast<unsigned char *>(malloc(max_out_size));
+
+    //TODO Different part
+    for (int i = 0; i < MAX; ++i) {
+        
+    }
+    //////////////// COMPRESSION ////////////////
+    size_t number_of_strings_compressed = fsst_compress(
+        encoder, /* IN: encoder obtained from fsst_create(). */
+        input.lengths.size(), /* IN: number of strings in batch to compress. */
+        input.lengths.data(), /* IN: byte-lengths of the inputs */
+        input.string_ptrs.data(), /* IN: input string start pointers. */
+        max_out_size, /* IN: byte-length of output buffer. */
+        output, /* OUT: memory buffer to put the compressed strings in (one after the other). */
+        lenOut.data(), /* OUT: byte-lengths of the compressed strings. */
+        strOut.data() /* OUT: output string start pointers. Will all point into [output,output+size). */
+    );
+
+    if (number_of_strings_compressed != n) {
+        // See if all size is zero
+        size_t total_size = 0;
+        for (size_t i = 0; i < input.lengths.size(); i++) {
+            total_size += input.lengths[i];
+        }
+        if (total_size != 0) {
+            throw std::logic_error("Number of compressed strings doesn't match number of strings of input. Compressed " + std::to_string(number_of_strings_compressed) + " strings, expected " + std::to_string(n) + " strings.\n");
+        } else {
+            printf("All strings are empty. Compressed %zu strings, input had %zu strings. \n", number_of_strings_compressed, n);
+        }
+    }
+    // print_compressed_strings(input.lengths, strIn, lenOut, strOut, num_compressed);
+
+    // fsst_decoder_t decoder = fsst_decoder(encoder);
+    // print_decoder_symbol_table(decoder);
+
+    return FSSTCompressionResult{encoder, lenOut, strOut, output, number_of_strings_compressed};
+
+    
+}
+
+    
 inline FSSTCompressionResult FSSTCompress(StringCollection &input) {
     const size_t n = input.lengths.size();
     // Create FSST encoder

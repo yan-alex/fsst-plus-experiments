@@ -27,9 +27,10 @@ inline size_t CalculateSuffixPlusHeaderSize(const FSSTCompressionResult &suffix_
                                   const size_t suffix_index) {
     const size_t suffix_encoded_length = suffix_compression_result.encoded_string_lengths[suffix_index];
     constexpr size_t prefix_length_byte = sizeof(uint8_t);
-    const bool suffix_has_prefix = (similarity_chunks[FindSimilarityChunkCorrespondingToIndex(
+    SimilarityChunk found = similarity_chunks[FindSimilarityChunkCorrespondingToIndex(
                                 suffix_index, similarity_chunks
-                              )].prefix_length != 0);
+                              )];
+    const bool suffix_has_prefix = (found.lengths[suffix_index - found.start_index] != 0);
     const size_t jumpback_size = suffix_has_prefix ? sizeof(uint16_t) : 0;
     return suffix_encoded_length + prefix_length_byte + jumpback_size;
 }
@@ -89,8 +90,11 @@ inline size_t CalculateBlockSizeAndPopulateWritingMetadata(const std::vector<Sim
 
         // Update suffix metadata
         wm.suffix_offsets_from_first_suffix[wm.number_of_suffixes] = wm.suffix_area_size;
-        wm.suffix_encoded_prefix_lengths[wm.number_of_suffixes] =
-            prefix_compression_result.encoded_string_lengths[prefix_index];
+        //TODO: Dynaimically determine suffix_encoded_prefix_lengths
+        wm.suffix_encoded_prefix_lengths[wm.number_of_suffixes] = prefix_compression_result.encoded_string_lengths[prefix_index];
+
+        suffix_compression_result.encoded_string_ptrs
+
         wm.suffix_prefix_index[wm.number_of_suffixes] = wm.number_of_prefixes - 1; // -1 because we increased it earlier
         wm.suffix_area_size += suffix_size;
         wm.number_of_suffixes += 1;
