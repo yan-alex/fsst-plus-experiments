@@ -18,7 +18,7 @@ inline void WriteBlockHeader(const BlockWritingMetadata &wm, uint8_t *&current_d
     }
 }
 
-inline void WritePrefixArea(const FSSTCompressionResult &prefix_compression_result, const BlockWritingMetadata &wm,
+inline void WritePrefixArea(const Prefixes &prefixes, const BlockWritingMetadata &wm,
                               const size_t prefix_area_start_index, 
                               uint8_t *&current_data_ptr // A reference to a pointer. When updated, the original pointer is updated as well.
                               ) {
@@ -32,16 +32,16 @@ inline void WritePrefixArea(const FSSTCompressionResult &prefix_compression_resu
         // std::cout << "prefix_index: " << prefix_index << '\n';
         
         // Add bounds checking before accessing the vector
-        if (prefix_index >= prefix_compression_result.encoded_string_lengths.size()) {
-            std::cerr << "⛔️ Prefix index out of bounds: " << prefix_index << " >= " << prefix_compression_result.encoded_string_lengths.size() << "\n";
+        if (prefix_index >= prefixes.lengths.size()) {
+            std::cerr << "⛔️ Prefix index out of bounds: " << prefix_index << " >= " << prefixes.lengths.size() << "\n";
             throw std::logic_error("Prefix index out of bounds.");
         }
         
-        const size_t prefix_length = prefix_compression_result.encoded_string_lengths[prefix_index];
+        const size_t prefix_length = prefixes.lengths[prefix_index];
 
         // std::cout << "Write Prefix " << i << " Length=" << prefix_length << '\n';
         
-        const unsigned char *prefix_start = prefix_compression_result.encoded_string_ptrs[prefix_index];
+        const unsigned char *prefix_start = prefixes.string_ptrs[prefix_index];
 
         // std::cout << "Current data ptr: " << static_cast<void*>(current_data_ptr) << '\n';  // Cast to void* to print address
         // std::cout << "Will write up to: " << static_cast<void*>(current_data_ptr + prefix_length) << '\n';  
@@ -51,13 +51,13 @@ inline void WritePrefixArea(const FSSTCompressionResult &prefix_compression_resu
     }
 }
 
-inline void WriteSuffixArea(const FSSTCompressionResult &suffix_compression_result, const BlockWritingMetadata &wm,
+inline void WriteSuffixArea(const Suffixes &suffixes, const BlockWritingMetadata &wm,
                               const size_t &suffix_area_start_index, uint8_t *&current_data_ptr) {
     for (size_t i = 0; i < wm.number_of_suffixes; i++) {
         const size_t suffix_index = suffix_area_start_index + i;
         
         // Add bounds check
-        if (suffix_index >= suffix_compression_result.encoded_string_ptrs.size()) {
+        if (suffix_index >= suffixes.string_ptrs.size()) {
             std::cerr << "⚠️ Invalid suffix index: " << suffix_index << "\n";
             throw std::logic_error("Invalid suffix index. Terminating.");
         }
@@ -82,8 +82,8 @@ inline void WriteSuffixArea(const FSSTCompressionResult &suffix_compression_resu
         }
 
         // write the suffix
-        const size_t suffix_length = suffix_compression_result.encoded_string_lengths[suffix_index];
-        const unsigned char *suffix_start = suffix_compression_result.encoded_string_ptrs[suffix_index];
+        const size_t suffix_length = suffixes.lengths[suffix_index];
+        const unsigned char *suffix_start = suffixes.string_ptrs[suffix_index];
         memcpy(current_data_ptr, suffix_start, suffix_length);
         current_data_ptr += suffix_length;
     }
@@ -91,18 +91,17 @@ inline void WriteSuffixArea(const FSSTCompressionResult &suffix_compression_resu
 
 
 inline uint8_t * WriteBlock(uint8_t *block_start,
-                        const FSSTCompressionResult &prefix_compression_result,
-                        const FSSTCompressionResult &suffix_compression_result, const BlockWritingMetadata &wm) {
+                        const CleavedResult &cleaved_result, const BlockWritingMetadata &wm) {
 
     uint8_t *current_data_ptr = block_start;
     // A) WRITE THE HEADER
     WriteBlockHeader(wm, current_data_ptr);
 
     // B) WRITE THE PREFIX AREA
-    WritePrefixArea(prefix_compression_result, wm, wm.prefix_area_start_index, current_data_ptr);
+    WritePrefixArea(cleaved_result.prefixes, wm, wm.prefix_area_start_index, current_data_ptr);
 
     // C) WRITE SUFFIX AREAˆ
-    WriteSuffixArea(suffix_compression_result, wm, wm.suffix_area_start_index, current_data_ptr);
+    WriteSuffixArea(cleaved_result.suffixes, wm, wm.suffix_area_start_index, current_data_ptr);
 
     return current_data_ptr;
 }

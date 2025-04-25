@@ -59,10 +59,9 @@ const std::vector<const unsigned char *> &string_ptrs_original, Metadata &metada
                 std::cerr << "‼️ ERROR: Decompression mismatch (suffix only) i: "<< i <<":\n"<<"result:   " << result << "\noriginal: " << string_ptrs_original[metadata.global_index] << "\n";
                 throw std::runtime_error("Decompression mismatch (suffix only)");
             }
-        } else {
+        } else { // Has prefix
             const uint8_t *jumpback_offset_ptr = suffix_data_area_start + sizeof(uint8_t);
             const uint16_t jumpback_offset = Load<uint16_t>(jumpback_offset_ptr);
-
             const uint8_t *encoded_suffix_ptr = jumpback_offset_ptr + sizeof(uint16_t);
 
             const uint8_t *encoded_prefix_ptr =

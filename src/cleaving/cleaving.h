@@ -9,8 +9,8 @@
 #include <limits>
 
 // Sort all strings based on their starting characters truncated to the largest multiple of 8 bytes (up to config::max_prefix_size bytes)
-inline void TruncatedSort(std::vector<size_t> &lenIn, std::vector<const unsigned char *> &strIn,
-                           const size_t start_index, const size_t cleaving_run_n) {
+inline void TruncatedSort(std::vector<size_t> &lenIn, std::vector<unsigned char *> &strIn,
+                           const size_t start_index, const size_t cleaving_run_n, StringCollection &input) {
     // Create index array
     std::vector<size_t> indices(cleaving_run_n);
     for (size_t i = start_index; i < start_index + cleaving_run_n; ++i) {
@@ -31,23 +31,32 @@ inline void TruncatedSort(std::vector<size_t> &lenIn, std::vector<const unsigned
 
     // Reorder both vectors based on sorted indices
     const std::vector<size_t> tmp_len(lenIn);
-    const std::vector<const unsigned char *> tmp_str(strIn);
+    const std::vector<unsigned char *> tmp_str(strIn);
+
+    // Create temporary copies of the original input vectors
+    const std::vector<size_t> tmp_input_lengths(input.lengths);
+    const std::vector<const unsigned char *> tmp_input_string_ptrs(input.string_ptrs);
 
     for (size_t k = 0; k < cleaving_run_n; ++k) {
         lenIn[start_index + k] = tmp_len[indices[k]];
         strIn[start_index + k] = tmp_str[indices[k]];
+
+        // ALSO REORDER THE ORIGINAL UNCOMPRESSED INPUT
+        // we do this to be able to pairwise compare later on when we verify decompression, to see if it matches with the original
+        input.lengths[start_index + k] = tmp_input_lengths[indices[k]];
+        input.string_ptrs[start_index + k] = tmp_input_string_ptrs[indices[k]];
     }
 
     // Print strings
     if (config::print_sorted_corpus) {
         std::cout << "Sorted strings: \n";
-        PrintStrings(lenIn, strIn);
+        PrintEncodedStrings(lenIn, strIn);
     }
 }
 
 inline std::vector<SimilarityChunk> FormSimilarityChunks(
     const std::vector<size_t> &lenIn,
-    const std::vector<const unsigned char *> &strIn,
+    const std::vector<unsigned char *> &strIn,
     const size_t start_index,
     const size_t size) {
     if (size == 0) return {}; // No strings to process
@@ -64,9 +73,12 @@ inline std::vector<SimilarityChunk> FormSimilarityChunks(
         while (l < max_lcp && s1[l] == s2[l]) {
             ++l;
         }
+        // Prevents splitting the escape code 255 from its escaped byte.
+        if (l!=0 && static_cast<int>(s1[l-1]) == 255) {
+            --l;
+        }
         lcp[i] = l;
     }
-
     // Precompute min_lcp[i][j]
     for (size_t i = 0; i < size; ++i) {
         min_lcp[i][i] = std::min(lenIn[start_index + i], config::max_prefix_size);
@@ -134,7 +146,7 @@ inline std::vector<SimilarityChunk> FormSimilarityChunks(
 }
 
 inline CleavedResult Cleave(const std::vector<size_t> &lenIn,
-                            std::vector<const unsigned char *> &strIn,
+                            const std::vector<unsigned char *> &strIn,
                             const std::vector<SimilarityChunk> &similarity_chunks,
                             size_t n
 ) {

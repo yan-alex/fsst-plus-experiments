@@ -15,16 +15,15 @@ struct FSSTPlusSizingResult {
     std::vector<size_t> block_sizes_pfx_summed;
 };
 
-inline size_t CalcMaxFSSTPlusDataSize(const FSSTCompressionResult &prefix_compression_result,
-                                              const FSSTCompressionResult &suffix_compression_result) {
+inline size_t CalcMaxFSSTPlusDataSize(const CleavedResult &cleaved_result) {
     size_t result = {0};
 
-    const size_t ns = suffix_compression_result.encoded_string_ptrs.size(); // number of strings
+    const size_t ns = cleaved_result.suffixes.string_ptrs.size(); // number of strings
     const size_t nb = ceil(static_cast<double>(ns) / 128); // number of blocks
     const size_t all_blocks_overhead = nb * (1 + 1 + 128 * 2); // block header3
     result += all_blocks_overhead;
-    result += CalcEncodedStringsSize(prefix_compression_result);
-    result += CalcEncodedStringsSize(suffix_compression_result);
+    result += CalcEncodedStringsSize(cleaved_result.prefixes);
+    result += CalcEncodedStringsSize(cleaved_result.suffixes);
     result += ns * 3;
     // Add extra safety padding to avoid potential buffer overflows
     result += (nb * 1024); // 1KB extra per blockfor safety TODO: No real reason this should be done but was failing without
@@ -47,7 +46,7 @@ inline StringCollection RetrieveData(const unique_ptr<MaterializedQueryResult> &
     return input;
 }
 
-inline FSSTPlusSizingResult SizeEverything(const size_t &n, const std::vector<SimilarityChunk> &similarity_chunks, const FSSTCompressionResult &prefix_compression_result, const FSSTCompressionResult &suffix_compression_result, const size_t &block_granularity) {
+inline FSSTPlusSizingResult SizeEverything(const size_t &n, const std::vector<SimilarityChunk> &similarity_chunks, const CleavedResult &cleaved_result, const size_t &block_granularity) {
     // First calculate total size of all blocks
     std::vector<BlockWritingMetadata> wms;
     std::vector<size_t> block_sizes_pfx_summed;
@@ -60,7 +59,7 @@ inline FSSTPlusSizingResult SizeEverything(const size_t &n, const std::vector<Si
         wm.suffix_area_start_index = suffix_area_start_index;
 
         size_t block_size = CalculateBlockSizeAndPopulateWritingMetadata(
-            similarity_chunks, prefix_compression_result, suffix_compression_result, wm,
+            similarity_chunks, cleaved_result, wm,
             suffix_area_start_index, block_granularity);
         size_t prefix_summed = block_sizes_pfx_summed.empty()
                                    ? block_size

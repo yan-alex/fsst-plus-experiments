@@ -68,8 +68,8 @@ TEST_CASE("CanFitInBlock()", "[block_sizer]") {
 
 TEST_CASE("CalculateSuffixPlusHeaderSize()", "[block_sizer]") {
     // Mock FSSTCompressionResult with different encoded string lengths
-    FSSTCompressionResult mock_compression_result;
-    mock_compression_result.encoded_string_lengths = {5, 10, 15, 20, 25};
+    Suffixes mock_suffixes(5);
+    mock_suffixes.lengths = {5, 10, 15, 20, 25};
     
     SECTION("Suffix without prefix") {
         // Create a similarity chunk without a prefix (prefix_length = 0)
@@ -82,9 +82,9 @@ TEST_CASE("CalculateSuffixPlusHeaderSize()", "[block_sizer]") {
         constexpr size_t jumpback_size = 0;  // No prefix, so no jumpback
 
         // Test for each encoded string length
-        for (size_t i = 0; i < mock_compression_result.encoded_string_lengths.size(); i++) {
-            size_t expected_size = mock_compression_result.encoded_string_lengths[i] + prefix_length_byte + jumpback_size;
-            size_t actual_size = CalculateSuffixPlusHeaderSize(mock_compression_result, mock_chunks, i);
+        for (size_t i = 0; i < mock_suffixes.lengths.size(); i++) {
+            size_t expected_size = mock_suffixes.lengths[i] + prefix_length_byte + jumpback_size;
+            size_t actual_size = CalculateSuffixPlusHeaderSize(mock_suffixes, mock_chunks, i);
             REQUIRE(actual_size == expected_size);
         }
     }
@@ -100,9 +100,9 @@ TEST_CASE("CalculateSuffixPlusHeaderSize()", "[block_sizer]") {
         constexpr size_t jumpback_size = sizeof(uint16_t);  // With prefix, so has jumpback
         
         // Test for each encoded string length
-        for (size_t i = 0; i < mock_compression_result.encoded_string_lengths.size(); i++) {
-            size_t expected_size = mock_compression_result.encoded_string_lengths[i] + prefix_length_byte + jumpback_size;
-            size_t actual_size = CalculateSuffixPlusHeaderSize(mock_compression_result, mock_chunks, i);
+        for (size_t i = 0; i < mock_suffixes.lengths.size(); i++) {
+            size_t expected_size = mock_suffixes.lengths[i] + prefix_length_byte + jumpback_size;
+            size_t actual_size = CalculateSuffixPlusHeaderSize(mock_suffixes, mock_chunks, i);
             REQUIRE(actual_size == expected_size);
         }
     }
@@ -111,16 +111,13 @@ TEST_CASE("CalculateSuffixPlusHeaderSize()", "[block_sizer]") {
 
 TEST_CASE("Basic tests CalculateBlockSizeAndPopulateWritingMetadata()", "[block_sizer]") {
     SECTION("Basic test") {
-        FSSTCompressionResult prefix_compression_result;
-        FSSTCompressionResult suffix_compression_result;
+        Suffixes mock_suffixes(5);
+        mock_suffixes.lengths = {10, 10, 10, 10, 10};
+        Prefixes mock_prefixes(5);
+        mock_prefixes.lengths = {10, 10, 10, 10, 10};
+
         std::vector<SimilarityChunk> similarity_chunks;
         BlockWritingMetadata wm(test::block_granularity);
-
-        suffix_compression_result.encoded_string_lengths = {10, 10, 10, 10, 10};
-        suffix_compression_result.encoded_string_ptrs.resize(5);
-
-        prefix_compression_result.encoded_string_lengths = {10, 10, 10, 10, 10};
-        prefix_compression_result.encoded_string_ptrs.resize(5);
 
         similarity_chunks = {
             {0, 10},
@@ -129,10 +126,12 @@ TEST_CASE("Basic tests CalculateBlockSizeAndPopulateWritingMetadata()", "[block_
             {3, 10},
             {4, 10},
         };
+        CleavedResult cleaved_result(5);
+        cleaved_result.prefixes = mock_prefixes;
+        cleaved_result.suffixes = mock_suffixes;
         size_t block_size = CalculateBlockSizeAndPopulateWritingMetadata(
             similarity_chunks,
-            prefix_compression_result,
-            suffix_compression_result,
+            cleaved_result,
             wm,
             0,
             test::block_granularity
@@ -167,34 +166,32 @@ TEST_CASE("Large scale CalculateBlockSizeAndPopulateWritingMetadata()", "[block_
     SECTION("Test with 1000 strings, block only takes 128") {
         // Create compression results for a large number of strings
         constexpr size_t num_strings = 1000;
-        FSSTCompressionResult prefix_compression_result;
-        FSSTCompressionResult suffix_compression_result;
+        Suffixes mock_suffixes(num_strings);
+        Prefixes mock_prefixes(num_strings);
         std::vector<SimilarityChunk> similarity_chunks;
         BlockWritingMetadata wm(test::block_granularity);
 
-        // Set up encoded strings with varying lengths to test block capacity limits
-        prefix_compression_result.encoded_string_ptrs.resize(num_strings);
-        suffix_compression_result.encoded_string_lengths.resize(num_strings);
-        suffix_compression_result.encoded_string_ptrs.resize(num_strings);
+        mock_suffixes.lengths.resize(num_strings);
 
         // Create patterns in the data to test different scenarios
         for (size_t i = 0; i < num_strings; i++) {
             // Create strings with varying sizes (5-15 bytes)
-            suffix_compression_result.encoded_string_lengths[i] = 5 + (i % 11);
+            mock_suffixes.lengths[i] = 5 + (i % 11);
             
             // Create similarity chunks with different patterns
             // Every 100 strings share the same prefix
             if (i % 100 == 0) {
                 similarity_chunks.push_back({i, 8}) ;
-                prefix_compression_result.encoded_string_lengths.push_back( 5 + (i % 11));
+                mock_prefixes.lengths.push_back( 5 + (i % 11));
             }
         }
-
+        CleavedResult cleaved_result(num_strings);
+        cleaved_result.prefixes = mock_prefixes;
+        cleaved_result.suffixes = mock_suffixes;
         // Calculate block size and populate writing metadata
         size_t block_size = CalculateBlockSizeAndPopulateWritingMetadata(
             similarity_chunks,
-            prefix_compression_result,
-            suffix_compression_result,
+            cleaved_result,
             wm,
             0,
             test::block_granularity
@@ -213,7 +210,7 @@ TEST_CASE("Large scale CalculateBlockSizeAndPopulateWritingMetadata()", "[block_
 
         size_t expected_suffix_area_size = 0;
         for (size_t i = 0; i < 128; i++) {
-            expected_suffix_area_size += (sizeof(uint8_t) + suffix_compression_result.encoded_string_lengths[i]);
+            expected_suffix_area_size += (sizeof(uint8_t) + mock_suffixes.lengths[i]);
         }
         expected_suffix_area_size += 128*sizeof(uint16_t); //prefix jumpbacks
 

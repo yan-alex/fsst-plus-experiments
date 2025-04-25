@@ -8,9 +8,9 @@
 
 inline bool TryAddPrefix(BlockSizingMetadata &sm,
                          BlockWritingMetadata &wm,
-                         const FSSTCompressionResult &prefix_compression_result,
+                         const Prefixes &prefixes,
                          const size_t prefix_index) {
-    const size_t prefix_size = prefix_compression_result.encoded_string_lengths[prefix_index];
+    const size_t prefix_size = prefixes.lengths[prefix_index];
     if (sm.block_size + prefix_size >= config::block_byte_capacity) {
         return false;
     }
@@ -22,10 +22,10 @@ inline bool TryAddPrefix(BlockSizingMetadata &sm,
     return true;
 }
 
-inline size_t CalculateSuffixPlusHeaderSize(const FSSTCompressionResult &suffix_compression_result,
+inline size_t CalculateSuffixPlusHeaderSize(const Suffixes &suffixes,
                                   const std::vector<SimilarityChunk> &similarity_chunks,
                                   const size_t suffix_index) {
-    const size_t suffix_encoded_length = suffix_compression_result.encoded_string_lengths[suffix_index];
+    const size_t suffix_encoded_length = suffixes.lengths[suffix_index];
     constexpr size_t prefix_length_byte = sizeof(uint8_t);
     const bool suffix_has_prefix = (similarity_chunks[FindSimilarityChunkCorrespondingToIndex(
                                 suffix_index, similarity_chunks
@@ -47,8 +47,7 @@ inline bool CanFitInBlock(const BlockSizingMetadata &bsm,
  * without exceeding the block’s byte capacity
  */
 inline size_t CalculateBlockSizeAndPopulateWritingMetadata(const std::vector<SimilarityChunk> &similarity_chunks,
-                                 const FSSTCompressionResult &prefix_compression_result,
-                                 const FSSTCompressionResult &suffix_compression_result,
+                                 const CleavedResult &cleaved_result,
                                  BlockWritingMetadata &wm,
                                  const size_t suffix_area_start_index,
                                  const size_t block_granularity) {
@@ -57,7 +56,7 @@ inline size_t CalculateBlockSizeAndPopulateWritingMetadata(const std::vector<Sim
     sm.block_size += sizeof(uint8_t);
 
     // Try to fit as many suffixes as possible, up to 128
-    size_t strings_to_go = suffix_compression_result.encoded_string_ptrs.size() - suffix_area_start_index;
+    size_t strings_to_go = cleaved_result.suffixes.lengths.size() - suffix_area_start_index;
     while (wm.number_of_suffixes < std::min(strings_to_go, block_granularity)) {
         const size_t suffix_index = suffix_area_start_index + wm.number_of_suffixes; // starts at 0
         const size_t prefix_index =
@@ -65,7 +64,7 @@ inline size_t CalculateBlockSizeAndPopulateWritingMetadata(const std::vector<Sim
 
         // If new prefix is needed, try to add it
         if (prefix_index != sm.prefix_last_index_added) {
-            if (!TryAddPrefix(sm, wm, prefix_compression_result, prefix_index)) {
+            if (!TryAddPrefix(sm, wm, cleaved_result.prefixes, prefix_index)) {
                 break;
             } else {
                 if (wm.prefix_area_start_index == UINT64_MAX) {
@@ -76,7 +75,7 @@ inline size_t CalculateBlockSizeAndPopulateWritingMetadata(const std::vector<Sim
 
         // Calculate suffix size
         size_t suffix_size = CalculateSuffixPlusHeaderSize(
-            suffix_compression_result, similarity_chunks, suffix_index
+            cleaved_result.suffixes, similarity_chunks, suffix_index
         );
         // Check capacity
         if (!CanFitInBlock(sm, suffix_size)) {
@@ -90,7 +89,7 @@ inline size_t CalculateBlockSizeAndPopulateWritingMetadata(const std::vector<Sim
         // Update suffix metadata
         wm.suffix_offsets_from_first_suffix[wm.number_of_suffixes] = wm.suffix_area_size;
         wm.suffix_encoded_prefix_lengths[wm.number_of_suffixes] =
-            prefix_compression_result.encoded_string_lengths[prefix_index];
+            cleaved_result.prefixes.lengths[prefix_index];
         wm.suffix_prefix_index[wm.number_of_suffixes] = wm.number_of_prefixes - 1; // -1 because we increased it earlier
         wm.suffix_area_size += suffix_size;
         wm.number_of_suffixes += 1;

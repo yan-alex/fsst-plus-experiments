@@ -12,7 +12,7 @@
 
 TEST_CASE("Test Case 1: Empty Input", "[cleaving]") {
     std::vector<size_t> lenIn = {};
-    std::vector<const unsigned char*> strIn = {};
+    std::vector<unsigned char*> strIn = {};
     size_t start_index = 0;
 
     std::vector<SimilarityChunk> expected_chunks = {};
@@ -26,7 +26,7 @@ TEST_CASE("Test Case 1: Empty Input", "[cleaving]") {
 TEST_CASE("Test Case 2: Single String", "[cleaving]") {
     std::string s = "http://example.com";
     std::vector<size_t> lenIn = { s.size() };
-    std::vector<const unsigned char*> strIn = { reinterpret_cast<const unsigned char*>(s.c_str()) };
+    std::vector<unsigned char*> strIn = { reinterpret_cast<unsigned char*>(const_cast<char*>(s.c_str())) };
     size_t start_index = 0;
 
     size_t prefix_length = 16; // Not used in expected
@@ -45,15 +45,15 @@ TEST_CASE("Test Case 2: Single String", "[cleaving]") {
 TEST_CASE("Test Case 3: Identical Strings", "[cleaving]") {
     std::string s = "http://identical.com/path";
     std::vector<size_t> lenIn = { s.size(), s.size(), s.size() };
-    std::vector<const unsigned char*> strIn = {
-        reinterpret_cast<const unsigned char*>(s.c_str()),
-        reinterpret_cast<const unsigned char*>(s.c_str()),
-        reinterpret_cast<const unsigned char*>(s.c_str())
+    std::vector<unsigned char*> strIn = {
+        reinterpret_cast<unsigned char*>(const_cast<char*>(s.c_str())),
+        reinterpret_cast<unsigned char*>(const_cast<char*>(s.c_str())),
+        reinterpret_cast<unsigned char*>(const_cast<char*>(s.c_str()))
     };
     size_t start_index = 0;
 
     size_t prefix_length = 24; // Length of the string, aligned to 8 -> Used in expected
-    SimilarityChunk expected_chunk = { 0, 24 };
+    SimilarityChunk expected_chunk = { 0, 25 };
     std::vector<SimilarityChunk> expected_chunks = { expected_chunk };
 
     auto actual_chunks = FormSimilarityChunks(lenIn, strIn, start_index, strIn.size());
@@ -73,10 +73,10 @@ TEST_CASE("Test Case 4: No Common Prefixes", "[cleaving]") {
         "date"
     };
     std::vector<size_t> lenIn;
-    std::vector<const unsigned char*> strIn;
+    std::vector<unsigned char*> strIn;
     for (const auto& s : strings) {
         lenIn.push_back(s.size());
-        strIn.push_back(reinterpret_cast<const unsigned char*>(s.c_str()));
+        strIn.push_back(reinterpret_cast<unsigned char*>(const_cast<char*>(s.c_str())));
     }
     size_t start_index = 0;
 
@@ -101,10 +101,10 @@ TEST_CASE("Test Case 5: Maximum Prefix Length", "[cleaving]") {
         base + "3"
     };
     std::vector<size_t> lenIn;
-    std::vector<const unsigned char*> strIn;
+    std::vector<unsigned char*> strIn;
     for (const auto& s : strings) {
         lenIn.push_back(s.size());
-        strIn.push_back(reinterpret_cast<const unsigned char*>(s.c_str()));
+        strIn.push_back(reinterpret_cast<unsigned char*>(const_cast<char*>(s.c_str())));
     }
     size_t start_index = 0;
 
@@ -128,10 +128,10 @@ TEST_CASE("Test Case 6: Minimum and Maximum Length Strings", "[cleaving]") {
         std::string(100, 'b') // 100 'b's
     };
     std::vector<size_t> lenIn;
-    std::vector<const unsigned char*> strIn;
+    std::vector<unsigned char*> strIn;
     for (const auto& s : strings) {
         lenIn.push_back(s.size());
-        strIn.push_back(reinterpret_cast<const unsigned char*>(s.c_str()));
+        strIn.push_back(reinterpret_cast<unsigned char*>(const_cast<char*>(s.c_str())));
     }
     size_t start_index = 0;
 
@@ -158,15 +158,15 @@ TEST_CASE("Test Case 7: Strings with Prefixes in Multiples of 8", "[cleaving]") 
         "prefix24_common_long_suffix6"
     };
     std::vector<size_t> lenIn;
-    std::vector<const unsigned char*> strIn;
+    std::vector<unsigned char*> strIn;
     for (const auto& s : strings) {
         lenIn.push_back(s.size());
-        strIn.push_back(reinterpret_cast<const unsigned char*>(s.c_str()));
+        strIn.push_back(reinterpret_cast<unsigned char*>(const_cast<char*>(s.c_str())));
     }
     size_t start_index = 0;
 
     std::vector<SimilarityChunk> expected_chunks = {
-        {0, 8}, {2, 16}, {4, 24}
+        {0, 15}, {2, 22}, {4, 27}
     };
 
     auto actual_chunks = FormSimilarityChunks(lenIn, strIn, start_index, strIn.size());
@@ -188,15 +188,15 @@ TEST_CASE("Test Case 8: Strings with Varying Prefix Lengths", "[cleaving]") {
         "another_different_string"
     };
     std::vector<size_t> lenIn;
-    std::vector<const unsigned char*> strIn;
+    std::vector<unsigned char*> strIn;
     for (const auto& s : strings) {
         lenIn.push_back(s.size());
-        strIn.push_back(reinterpret_cast<const unsigned char*>(s.c_str()));
+        strIn.push_back(reinterpret_cast<unsigned char*>(const_cast<char*>(s.c_str())));
     }
     size_t start_index = 0;
 
     std::vector<SimilarityChunk> expected_chunks = {
-        {0, 16}, {2, 0}, {3, 16}, {5, 0}
+        {0, 22}, {2, 0}, {3, 20}, {5, 0}
     };
 
     auto actual_chunks = FormSimilarityChunks(lenIn, strIn, start_index, strIn.size());
@@ -218,10 +218,10 @@ TEST_CASE("Test Case 9: Start Index Offset", "[cleaving]") {
         "string005"
     };
     std::vector<size_t> lenIn;
-    std::vector<const unsigned char*> strIn;
+    std::vector<unsigned char*> strIn;
     for (const auto& s : all_strings) {
         lenIn.push_back(s.size());
-        strIn.push_back(reinterpret_cast<const unsigned char*>(s.c_str()));
+        strIn.push_back(reinterpret_cast<unsigned char*>(const_cast<char*>(s.c_str())));
     }
     size_t start_index = 2; // Start processing from "string2"
     size_t num_elements = strIn.size() - start_index; // Process remaining elements
@@ -245,16 +245,16 @@ TEST_CASE("Test Case 10: Maximum Number of Strings (128 Strings)", "[cleaving]")
         strings.push_back("common_prefix_" + std::to_string(i));
     }
     std::vector<size_t> lenIn;
-    std::vector<const unsigned char*> strIn;
+    std::vector<unsigned char*> strIn;
     for (const auto& s : strings) {
         lenIn.push_back(s.size());
-        strIn.push_back(reinterpret_cast<const unsigned char*>(s.c_str()));
+        strIn.push_back(reinterpret_cast<unsigned char*>(const_cast<char*>(s.c_str())));
     }
     size_t start_index = 0;
 
     // Expected prefix length is 8 ('common_prefix_' is 14 characters, aligned down to 8)
     // The logic might form multiple chunks based on how digits change the bytes
-    std::vector<SimilarityChunk> expected_chunks = {{0, 8}, {100, 16}, {110, 16}, {120, 16}}; // Adjusted expectation based on original test
+    std::vector<SimilarityChunk> expected_chunks = {{0, 14}, {100, 15}}; // Adjusted expectation based on original test
 
     auto actual_chunks = FormSimilarityChunks(lenIn, strIn, start_index, strIn.size());
 
@@ -272,10 +272,10 @@ TEST_CASE("Test Case 11: Strings with Common Prefix Exactly at 120 Characters", 
         common_prefix + "suffix2"
     };
     std::vector<size_t> lenIn;
-    std::vector<const unsigned char*> strIn;
+    std::vector<unsigned char*> strIn;
     for (const auto& s : strings) {
         lenIn.push_back(s.size());
-        strIn.push_back(reinterpret_cast<const unsigned char*>(s.c_str()));
+        strIn.push_back(reinterpret_cast<unsigned char*>(const_cast<char*>(s.c_str())));
     }
     size_t start_index = 0;
 
@@ -298,10 +298,10 @@ TEST_CASE("Test Case 12: Strings with Non-ASCII Characters", "[cleaving]") {
         u8"другой_строка"
     };
     std::vector<size_t> lenIn;
-    std::vector<const unsigned char*> strIn;
+    std::vector<unsigned char*> strIn;
     for (const auto& s : strings) {
         lenIn.push_back(s.size()); // UTF-8 encoding, size() gives the byte length
-        strIn.push_back(reinterpret_cast<const unsigned char*>(s.c_str()));
+        strIn.push_back(reinterpret_cast<unsigned char*>(const_cast<char*>(s.c_str())));
     }
     size_t start_index = 0;
 
@@ -312,7 +312,7 @@ TEST_CASE("Test Case 12: Strings with Non-ASCII Characters", "[cleaving]") {
     while (lcp < max_len && s1[lcp] == s2[lcp]) {
         ++lcp;
     }
-    size_t prefix_length = lcp - (lcp % 8); // Align down to multiple of 8
+    size_t prefix_length = lcp;
 
     std::vector<SimilarityChunk> expected_chunks = {
         {0, prefix_length},
@@ -338,10 +338,10 @@ TEST_CASE("Test Case 15: Chose a more specific prefix instead of a general one",
     strings.push_back("FSSTPLUSCCCCCCCC");
 
     std::vector<size_t> lenIn;
-    std::vector<const unsigned char*> strIn;
+    std::vector<unsigned char*> strIn;
     for (const auto& s : strings) {
         lenIn.push_back(s.size());
-        strIn.push_back(reinterpret_cast<const unsigned char*>(s.c_str()));
+        strIn.push_back(reinterpret_cast<unsigned char*>(const_cast<char*>(s.c_str())));
     }
     size_t start_index = 0;
 
@@ -366,14 +366,71 @@ TEST_CASE("Test Case 13: Chose a more general prefix instead of specific ones", 
     strings.push_back("FSSTPLUSDDDDDDDD");
 
     std::vector<size_t> lenIn;
-    std::vector<const unsigned char*> strIn;
+    std::vector<unsigned char*> strIn;
     for (const auto& s : strings) {
         lenIn.push_back(s.size());
-        strIn.push_back(reinterpret_cast<const unsigned char*>(s.c_str()));
+        strIn.push_back(reinterpret_cast<unsigned char*>(const_cast<char*>(s.c_str())));
     }
     size_t start_index = 0;
 
     std::vector<SimilarityChunk> expected_chunks = {{0, 8}};
+
+    auto actual_chunks = FormSimilarityChunks(lenIn, strIn, start_index, strIn.size());
+
+    REQUIRE(actual_chunks.size() == expected_chunks.size());
+    for (size_t i = 0; i < expected_chunks.size(); ++i) {
+        REQUIRE(actual_chunks[i].start_index == expected_chunks[i].start_index);
+        REQUIRE(actual_chunks[i].prefix_length == expected_chunks[i].prefix_length);
+    }
+}
+
+TEST_CASE("Test Case 14: Should not split escape coded (255)", "[cleaving]") {
+    std::vector<std::string> strings;
+    std::vector<uint8_t> data;
+    data = {
+        1, 2, 3, 4,
+        5, 6, 7, 255, 8,
+        100, 100, 100, 100
+    };
+    strings.push_back(std::string(data.begin(), data.end()));
+
+    data = {
+        1, 2, 3, 4,
+        5, 6, 7, 255, 9,
+        100, 100, 100, 100
+    };
+    strings.push_back(std::string(data.begin(), data.end()));
+
+    data = {
+        1, 2, 3, 4,
+        5, 6, 7, 255, 10,
+        100, 100, 100, 100
+    };
+    strings.push_back(std::string(data.begin(), data.end()));
+
+    data = {
+        1, 2, 3, 4,
+        5, 6, 7, 255, 11,
+        100, 100, 100, 100
+    };
+    strings.push_back(std::string(data.begin(), data.end()));
+
+    data = {
+        1, 2, 3, 4,
+        5, 6, 7, 255, 12,
+        100, 100, 100, 100
+    };
+    strings.push_back(std::string(data.begin(), data.end()));
+
+    std::vector<size_t> lenIn;
+    std::vector<unsigned char*> strIn;
+    for (const auto& s : strings) {
+        lenIn.push_back(s.size());
+        strIn.push_back(reinterpret_cast<unsigned char*>(const_cast<char*>(s.c_str())));
+    }
+    size_t start_index = 0;
+
+    std::vector<SimilarityChunk> expected_chunks = {{0, 7}};
 
     auto actual_chunks = FormSimilarityChunks(lenIn, strIn, start_index, strIn.size());
 

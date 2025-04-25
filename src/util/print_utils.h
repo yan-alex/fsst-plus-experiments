@@ -2,26 +2,48 @@
 // Created by Yan Lanna Alexandre on 07/03/2025.
 //
 #pragma once
-#include <fsst.h>
 #include "cleaving_types.h"
 #include <iomanip>
 #include <iostream>
 #include <vector>
+#include <fsst.h>
 
-
-inline void PrintStrings(const std::vector<size_t> &lenIn, const std::vector<const unsigned char *> &strIn) {
+inline void PrintStringsConst(const std::vector<size_t> &lenIn, const std::vector<const unsigned char *> &strIn) {
     // Print strings
     for (size_t i = 0; i < lenIn.size(); ++i) {
-        std::cout << "i " << std::setw(3) << i << ": ";
+        std::cout << "i " << std::setw(3) << i << " ";
+        std::cout << "length " << std::setw(5) << lenIn[i] << " : ";
         for (size_t j = 0; j < lenIn[i]; ++j) {
             std::cout << strIn[i][j];
         }
         std::cout << std::endl;
     }
-};
+}
+
+inline void PrintEncodedStrings(const std::vector<size_t> &lenIn, const std::vector<unsigned char *> &strIn) {
+    // Print strings
+    for (size_t i = 0; i < lenIn.size(); ++i) {
+        std::cout << "i " << std::setw(3) << i << ": ";
+        for (size_t j = 0; j < lenIn[i]; ++j) {
+            std::cout << static_cast<int>(strIn[i][j]) << " ";
+        }
+        std::cout << std::endl;
+    }
+}
+
+inline void PrintEncodedStringsConst(const std::vector<size_t> &lenIn, const std::vector<const unsigned char *> &strIn) {
+    // Print strings
+    for (size_t i = 0; i < lenIn.size(); ++i) {
+        std::cout << "i " << std::setw(3) << i << ": ";
+        for (size_t j = 0; j < lenIn[i]; ++j) {
+            std::cout << static_cast<int>(strIn[i][j]) << " ";
+        }
+        std::cout << std::endl;
+    }
+}
 
 inline void PrintStringWithSplitPoints(
-    const std::vector<const unsigned char *> &strIn,
+    const std::vector<unsigned char *> &strIn,
     const std::vector<size_t> &suffixLenIn,
     const std::vector<const unsigned char *> &suffixStrIn,
     const SimilarityChunk &chunk,

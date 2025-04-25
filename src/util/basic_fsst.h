@@ -17,6 +17,18 @@ struct FSSTCompressionResult {
     unsigned char *output_buffer;
     size_t number_of_strings_compressed;
 };
+inline void PrintFSSTCompressionResult(const FSSTCompressionResult &fsst_compression_result) {
+    PrintDecoderSymbolTable(fsst_decoder(fsst_compression_result.encoder));
+    printf(">>>COMPRESSION RESULT<<<\n");
+    // Print strings
+    for (size_t i = 0; i < fsst_compression_result.encoded_string_lengths.size(); ++i) {
+        std::cout << "i " << std::setw(3) << i << ": ";
+        for (size_t j = 0; j < fsst_compression_result.encoded_string_lengths[i]; ++j) {
+            std::cout << static_cast<int>(fsst_compression_result.encoded_string_ptrs[i][j]) << " ";
+        }
+        std::cout << std::endl;
+    }
+}
 
 inline fsst_encoder_t *CreateEncoder(const std::vector<size_t> &lenIn, std::vector<const unsigned char *> &strIn) {
     constexpr int zeroTerminated = 0; // DuckDB strings are not zero-terminated
@@ -234,11 +246,11 @@ inline void RunBasicFSST(duckdb::Connection &con, StringCollection &input, const
     }
 }
 
-inline size_t CalcEncodedStringsSize(const FSSTCompressionResult &compression_result) {
+inline size_t CalcEncodedStringsSize(const StringCollection &encoded_strings) {
     size_t result = 0;
-    const size_t size = compression_result.encoded_string_lengths.size();
+    const size_t size = encoded_strings.lengths.size();
     for (size_t i = 0; i < size; ++i) {
-        result += compression_result.encoded_string_lengths[i];
+        result += encoded_strings.lengths[i];
     }
     return result;
 }

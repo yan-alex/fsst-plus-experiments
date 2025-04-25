@@ -58,20 +58,20 @@ Metadata &metadata
 }
 
 
-std::vector<SimilarityChunk> FormBlockwiseSimilarityChunks(const size_t &n, StringCollection &input, const size_t &block_granularity) {
+std::vector<SimilarityChunk> FormBlockwiseSimilarityChunks(const size_t &n, FSSTCompressionResult &input_compressed, const size_t &block_granularity, StringCollection &input) {
     std::vector<SimilarityChunk> similarity_chunks;
     similarity_chunks.reserve(n);
 
     // Figure out the optimal split points (similarity chunks)
     for (size_t i = 0; i < n; i += block_granularity) {
-        const size_t cleaving_run_n = std::min(input.lengths.size() - i, block_granularity);
+        const size_t cleaving_run_n = std::min(input_compressed.encoded_string_lengths.size() - i, block_granularity);
 
         // std::cout << "Current Cleaving Run coverage: " << i << ":" << i + cleaving_run_n - 1 << std::endl;
 
-        TruncatedSort(input.lengths, input.string_ptrs, i, cleaving_run_n);
+        TruncatedSort(input_compressed.encoded_string_lengths, input_compressed.encoded_string_ptrs, i, cleaving_run_n, input);
 
         const std::vector<SimilarityChunk> cleaving_run_similarity_chunks = FormSimilarityChunks(
-            input.lengths, input.string_ptrs, i, cleaving_run_n);
+            input_compressed.encoded_string_lengths, input_compressed.encoded_string_ptrs, i, cleaving_run_n);
         similarity_chunks.insert(similarity_chunks.end(),
                                  cleaving_run_similarity_chunks.begin(),
                                  cleaving_run_similarity_chunks.end());
@@ -81,15 +81,12 @@ std::vector<SimilarityChunk> FormBlockwiseSimilarityChunks(const size_t &n, Stri
 
 
 
-FSSTPlusCompressionResult FSSTPlusCompress(const size_t n, std::vector<SimilarityChunk> similarity_chunks, CleavedResult cleaved_result, const size_t &block_granularity, fsst_encoder_t *encoder) {
+FSSTPlusCompressionResult FSSTPlusCompress(const size_t n, const std::vector<SimilarityChunk> &similarity_chunks, const CleavedResult &cleaved_result, const size_t &block_granularity, fsst_encoder_t *encoder) {
     FSSTPlusCompressionResult compression_result{};
     compression_result.encoder = encoder;
 
-    FSSTCompressionResult prefix_compression_result = FSSTCompress(cleaved_result.prefixes, encoder);
-    FSSTCompressionResult suffix_compression_result = FSSTCompress(cleaved_result.suffixes, encoder);
-
     // Allocate the maximum size possible for the corpus
-    size_t max_size = CalcMaxFSSTPlusDataSize(prefix_compression_result,suffix_compression_result);
+    size_t max_size = CalcMaxFSSTPlusDataSize(cleaved_result);
     compression_result.data_start = new uint8_t[max_size];
 
     // std::cout << "Data should start at: " << static_cast<void*>(compression_result.data_start) << '\n';
@@ -103,8 +100,7 @@ FSSTPlusCompressionResult FSSTPlusCompress(const size_t n, std::vector<Similarit
      * allowing us to write block_start_offsets[] and data_end_offset also.
      */
 
-     FSSTPlusSizingResult sizing_result = SizeEverything(n, similarity_chunks, prefix_compression_result, suffix_compression_result, block_granularity);
-
+     FSSTPlusSizingResult sizing_result = SizeEverything(n, similarity_chunks, cleaved_result, block_granularity);
 
     uint8_t* global_header_ptr = compression_result.data_start;
 
@@ -141,12 +137,10 @@ FSSTPlusCompressionResult FSSTPlusCompress(const size_t n, std::vector<Similarit
         // std::cout << "wm.prefix_area_size: " << sizing_result.wms[i].prefix_area_size << "\n";
 
         // std::cout << "\n🧱 Block " << std::setw(3) << i << " start: " << static_cast<void*>(next_block_start_ptr) << '\n';
-        next_block_start_ptr = WriteBlock(next_block_start_ptr, prefix_compression_result, suffix_compression_result, sizing_result.wms[i]);
+        next_block_start_ptr = WriteBlock(next_block_start_ptr, cleaved_result, sizing_result.wms[i]);
     }
 
-    // Cleanup
-    free(prefix_compression_result.output_buffer);
-    free(suffix_compression_result.output_buffer);
+
 
     compression_result.data_end = next_block_start_ptr;
     return compression_result;
@@ -265,25 +259,35 @@ void RunFSSTPlus(Connection &con, const size_t &block_granularity, Metadata &met
     // Start timing
     auto start_time = std::chrono::high_resolution_clock::now();
 
-    const std::vector<SimilarityChunk> similarity_chunks = FormBlockwiseSimilarityChunks(n, input, block_granularity);
+    fsst_encoder_t *encoder = CreateEncoder(input.lengths, input.string_ptrs);
 
-    const CleavedResult cleaved_result = Cleave(input.lengths, input.string_ptrs, similarity_chunks, n);
+    FSSTCompressionResult input_compressed = FSSTCompress(input, encoder);
+    // PrintFSSTCompressionResult(input_compressed);
+
+    const std::vector<SimilarityChunk> similarity_chunks = FormBlockwiseSimilarityChunks(n, input_compressed, block_granularity, input);
+
+    const CleavedResult cleaved_result = Cleave(input_compressed.encoded_string_lengths, input_compressed.encoded_string_ptrs, similarity_chunks, n);
+
     if (config::print_similarity_chunks) {
         std::cout << "🤓 Similarity Chunks 🤓\n";
         for (int i = 0; i < similarity_chunks.size(); ++i) {
             std::cout
                     // << "i:" << std::setw(6) << i
                     << " start_index: " << std::setw(6)<< similarity_chunks[i].start_index << " prefix_length: " << std::setw(3) <<similarity_chunks[i].prefix_length
-                    << " PREFIX: " << cleaved_result.prefixes.string_ptrs[i] << "\n";
+                    << " PREFIX: ";
+
+            for (size_t j = 0; j < similarity_chunks[i].prefix_length; ++j) {
+                std::cout << static_cast<int>(*(cleaved_result.prefixes.string_ptrs[i]+j)) << " ";
+            }
+            printf("\n");
         }
     }
-    fsst_encoder_t *encoder = CreateEncoder(input.lengths, input.string_ptrs);
-
     const FSSTPlusCompressionResult compression_result = FSSTPlusCompress(n, similarity_chunks, cleaved_result, block_granularity, encoder);
 
     // End timing
     auto end_time = std::chrono::high_resolution_clock::now();
     fsst_decoder_t decoder = fsst_decoder(encoder);
+
     // decompress to check all went well
     DecompressAll(compression_result.data_start, decoder, input.lengths, input.string_ptrs, metadata);
 
@@ -315,6 +319,7 @@ void RunFSSTPlus(Connection &con, const size_t &block_granularity, Metadata &met
     }
 
     // Cleanup
+    free(input_compressed.output_buffer);
     fsst_destroy(compression_result.encoder);
     delete[] compression_result.data_start;
 }
@@ -337,8 +342,10 @@ bool process_dataset(Connection &con, const size_t &block_granularity, const str
     vector<string> column_names;
 
     try {
-        // column_names = GetColumnNames(columns_result); //TODO: Uncomment
-        column_names = {"URL"};
+        column_names = GetColumnNames(columns_result); //TODO: Uncomment
+        // column_names = {"URL"};
+        // column_names = {"Referer"};
+        // column_names = {"Title"};
     } catch (std::exception& e) {
         std::cerr << "🚨 Error GetColumnNames() with dataset: " << dataset_name << ": " << e.what() << std::endl;
         std::cerr << "Moving on to the next dataset" << std::endl;
@@ -387,20 +394,14 @@ bool process_dataset(Connection &con, const size_t &block_granularity, const str
 
             std::cout <<"==========START DICTIONARY COMPRESSION=========\n";
             metadata.algo = "dictionary";
-            // Calc dict compression
             RunDictionaryCompression(con, column_name, dataset_path, n, total_string_size, metadata);
 
-            // Run Basic FSST for comparison
             std::cout <<"==========START BASIC FSST COMPRESSION=========\n";
             metadata.algo = "basic_fsst";
-
             RunBasicFSST(con, input, total_string_size, metadata);
 
-
-            // Now run FSST Plus
             std::cout <<"==========START FSST PLUS COMPRESSION==========\n";
             metadata.algo = "fsst_plus";
-
             RunFSSTPlus(con, block_granularity, metadata, n, input, total_string_size);
         } catch (std::exception& e) {
             std::cerr << "🚨 Error processing column" << dataset_name << "." << column_name << ": " << e.what() << std::endl;
@@ -546,22 +547,22 @@ int main() {
     vector<string> datasets = FindDatasets(con, data_dir);
     
     constexpr size_t block_granularity = 128;
-    constexpr int num_threads = 1;
+    constexpr int num_threads = 192;
 
     // Create a thread-safe queue for distributing work
     ThreadSafeQueue dataset_queue;
     
-    // for (const auto& dataset_path : datasets) { //TODO: Uncomment
-    //     dataset_queue.push(dataset_path);
-    // }
+    for (const auto& dataset_path : datasets) { //TODO: Uncomment
+        dataset_queue.push(dataset_path);
+    }
 
     // dataset_queue.push(env::project_dir + "/benchmarking/data/refined/NextiaJD/freecodecamp_casual_chatroom.parquet");
     // dataset_queue.push(env::project_dir + "/benchmarking/data/refined/NextiaJD/glassdoor.parquet");
     // dataset_queue.push(env::project_dir + "/benchmarking/data/refined/NextiaJD/glassdoor_photos.parquet");
     // dataset_queue.push(env::project_dir + "/benchmarking/data/refined/NextiaJD/github_issues.parquet");
-    dataset_queue.push(env::project_dir + "/benchmarking/data/refined/clickbench.parquet");
+    // dataset_queue.push(env::project_dir + "/benchmarking/data/refined/clickbench.parquet");
 
-    
+
     // Create worker threads
     std::vector<std::thread> threads;
     for (int i = 0; i < num_threads; i++) {
