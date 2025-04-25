@@ -337,8 +337,8 @@ bool process_dataset(Connection &con, const size_t &block_granularity, const str
     vector<string> column_names;
 
     try {
-        // column_names = GetColumnNames(columns_result); //TODO: Uncomment
-        column_names = {"URL"};
+        column_names = GetColumnNames(columns_result); //TODO: Uncomment
+        // column_names = {"URL"};
     } catch (std::exception& e) {
         std::cerr << "🚨 Error GetColumnNames() with dataset: " << dataset_name << ": " << e.what() << std::endl;
         std::cerr << "Moving on to the next dataset" << std::endl;
@@ -546,20 +546,20 @@ int main() {
     vector<string> datasets = FindDatasets(con, data_dir);
     
     constexpr size_t block_granularity = 128;
-    constexpr int num_threads = 1;
+    constexpr int num_threads = 192;
 
     // Create a thread-safe queue for distributing work
     ThreadSafeQueue dataset_queue;
     
-    // for (const auto& dataset_path : datasets) { //TODO: Uncomment
-    //     dataset_queue.push(dataset_path);
-    // }
+    for (const auto& dataset_path : datasets) { //TODO: Uncomment
+        dataset_queue.push(dataset_path);
+    }
 
     // dataset_queue.push(env::project_dir + "/benchmarking/data/refined/NextiaJD/freecodecamp_casual_chatroom.parquet");
     // dataset_queue.push(env::project_dir + "/benchmarking/data/refined/NextiaJD/glassdoor.parquet");
     // dataset_queue.push(env::project_dir + "/benchmarking/data/refined/NextiaJD/glassdoor_photos.parquet");
     // dataset_queue.push(env::project_dir + "/benchmarking/data/refined/NextiaJD/github_issues.parquet");
-    dataset_queue.push(env::project_dir + "/benchmarking/data/refined/clickbench.parquet");
+    // dataset_queue.push(env::project_dir + "/benchmarking/data/refined/clickbench.parquet");
 
     
     // Create worker threads
