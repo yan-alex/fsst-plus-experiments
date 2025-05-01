@@ -213,12 +213,29 @@ bool CreateResultsTable(Connection &con) {
 vector<string> FindDatasets(Connection &con, const string &data_dir) {
     vector<string> datasets;
     const auto files_result = con.Query("SELECT file FROM glob('" + data_dir + "/**/*.parquet')");
+
+    std::unordered_set<std::string> publicBIFolders;
+
     try {
         auto files_chunk = files_result->Fetch();
         while (files_chunk) {
             auto file_names = duckdb::FlatVector::GetData<duckdb::string_t>(files_chunk->data[0]);
             for (size_t i = 0; i < files_chunk->size(); i++) {
+                std::string file_name = file_names[i].GetString();
+                size_t last_slash_pos = file_name.rfind('/'); // Find the position of the last '/'
+                std::string folder_path = file_name.substr(0, last_slash_pos);
+                printf("folder_path: %s\n", folder_path.c_str());
+                if (file_name.find("PublicBIbenchmark") != std::string::npos) {
+                    if (publicBIFolders.find(folder_path) == publicBIFolders.end()) { // Only take the first occurrence of each folder
+                        printf("Adding PublicBIbenchmark dataset: %s\n", file_name.c_str());
+                        publicBIFolders.insert(folder_path);
+                        datasets.push_back(file_name);
+                    } else {
+                        std::cout << "Skipping execssive dataset: " << file_name << std::endl;
+                    }
+                } else {
                 datasets.push_back(file_names[i].GetString());
+                }
             }
             files_chunk = files_result->Fetch();
         }
@@ -400,9 +417,10 @@ bool process_dataset(Connection &con, const size_t &block_granularity, const str
             metadata.algo = "basic_fsst";
             RunBasicFSST(con, input, total_string_size, metadata);
 
-            std::cout <<"==========START FSST PLUS COMPRESSION==========\n";
-            metadata.algo = "fsst_plus";
-            RunFSSTPlus(con, block_granularity, metadata, n, input, total_string_size);
+            // std::cout <<"==========START FSST PLUS COMPRESSION==========\n";
+            // metadata.algo = "fsst_plus";
+            // RunFSSTPlus(con, block_granularity, metadata, n, input, total_string_size);
+
         } catch (std::exception& e) {
             std::cerr << "🚨 Error processing column" << dataset_name << "." << column_name << ": " << e.what() << std::endl;
             std::cerr << "Moving on to the next column" << std::endl;
@@ -510,13 +528,13 @@ void save_results(Connection &con) {
     }
 
     // Save results to parquet file
-    string save_query = "COPY results TO '" + env::project_dir + "/benchmarking/results/results.parquet' (FORMAT 'parquet', OVERWRITE TRUE)";
+    string save_query = "COPY results TO '" + env::project_dir + "/benchmarking/results/results_base.parquet' (FORMAT 'parquet', OVERWRITE TRUE)";
     con.Query(save_query);
 
     // Verify the file was created
-    std::ifstream file_check((env::project_dir + "/benchmarking/results/results.parquet").c_str());
+    std::ifstream file_check((env::project_dir + "/benchmarking/results/results_base.parquet").c_str());
     if (file_check.good()) {
-        std::cout << "Results saved to " << env::project_dir << "/benchmarking/results/results.parquet" << std::endl;
+        std::cout << "Results saved to " << env::project_dir << "/benchmarking/results/results_base.parquet" << std::endl;
     } else {
         std::cerr << "Warning: Results file not found after save operation" << std::endl;
     }
