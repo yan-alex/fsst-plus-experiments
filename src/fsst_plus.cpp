@@ -20,10 +20,10 @@
 #include <condition_variable>
 
 namespace config {
-    constexpr size_t total_strings = 100000; // # of input strings
+    constexpr size_t total_strings = 256; // # of input strings
     constexpr bool print_sorted_corpus = false;
-    constexpr bool print_split_points = false; // prints compressed corpus displaying split points
-    constexpr bool print_similarity_chunks = false;
+    constexpr bool print_split_points = true; // prints compressed corpus displaying split points
+    constexpr bool print_similarity_chunks = true;
     constexpr bool print_decompressed_corpus = false;
 }
 
@@ -68,7 +68,7 @@ std::vector<SimilarityChunk> FormBlockwiseSimilarityChunks(const size_t &n, FSST
 
         // std::cout << "Current Cleaving Run coverage: " << i << ":" << i + cleaving_run_n - 1 << std::endl;
 
-        TruncatedSort(input_compressed.encoded_string_lengths, input_compressed.encoded_string_ptrs, i, cleaving_run_n, input);
+        Sort(input_compressed.encoded_string_lengths, input_compressed.encoded_string_ptrs, i, cleaving_run_n, input);
 
         const std::vector<SimilarityChunk> cleaving_run_similarity_chunks = FormSimilarityChunks(
             input_compressed.encoded_string_lengths, input_compressed.encoded_string_ptrs, i, cleaving_run_n);
@@ -359,8 +359,8 @@ bool process_dataset(Connection &con, const size_t &block_granularity, const str
     vector<string> column_names;
 
     try {
-        column_names = GetColumnNames(columns_result); //TODO: Uncomment
-        // column_names = {"URL"};
+        // column_names = GetColumnNames(columns_result); //TODO: Uncomment
+        column_names = {"URL"};
         // column_names = {"Referer"};
         // column_names = {"Title"};
     } catch (std::exception& e) {
@@ -417,9 +417,9 @@ bool process_dataset(Connection &con, const size_t &block_granularity, const str
             metadata.algo = "basic_fsst";
             RunBasicFSST(con, input, total_string_size, metadata);
 
-            // std::cout <<"==========START FSST PLUS COMPRESSION==========\n";
-            // metadata.algo = "fsst_plus";
-            // RunFSSTPlus(con, block_granularity, metadata, n, input, total_string_size);
+            std::cout <<"==========START FSST PLUS COMPRESSION==========\n";
+            metadata.algo = "fsst_plus";
+            RunFSSTPlus(con, block_granularity, metadata, n, input, total_string_size);
 
         } catch (std::exception& e) {
             std::cerr << "🚨 Error processing column" << dataset_name << "." << column_name << ": " << e.what() << std::endl;
@@ -528,13 +528,13 @@ void save_results(Connection &con) {
     }
 
     // Save results to parquet file
-    string save_query = "COPY results TO '" + env::project_dir + "/benchmarking/results/results_base.parquet' (FORMAT 'parquet', OVERWRITE TRUE)";
+    string save_query = "COPY results TO '" + env::project_dir + "/benchmarking/results/results.parquet' (FORMAT 'parquet', OVERWRITE TRUE)";
     con.Query(save_query);
 
     // Verify the file was created
-    std::ifstream file_check((env::project_dir + "/benchmarking/results/results_base.parquet").c_str());
+    std::ifstream file_check((env::project_dir + "/benchmarking/results/results.parquet").c_str());
     if (file_check.good()) {
-        std::cout << "Results saved to " << env::project_dir << "/benchmarking/results/results_base.parquet" << std::endl;
+        std::cout << "Results saved to " << env::project_dir << "/benchmarking/results/results.parquet" << std::endl;
     } else {
         std::cerr << "Warning: Results file not found after save operation" << std::endl;
     }
@@ -570,15 +570,15 @@ int main() {
     // Create a thread-safe queue for distributing work
     ThreadSafeQueue dataset_queue;
     
-    for (const auto& dataset_path : datasets) { //TODO: Uncomment
-        dataset_queue.push(dataset_path);
-    }
+    // for (const auto& dataset_path : datasets) { //TODO: Uncomment
+    //     dataset_queue.push(dataset_path);
+    // }
 
     // dataset_queue.push(env::project_dir + "/benchmarking/data/refined/NextiaJD/freecodecamp_casual_chatroom.parquet");
     // dataset_queue.push(env::project_dir + "/benchmarking/data/refined/NextiaJD/glassdoor.parquet");
     // dataset_queue.push(env::project_dir + "/benchmarking/data/refined/NextiaJD/glassdoor_photos.parquet");
     // dataset_queue.push(env::project_dir + "/benchmarking/data/refined/NextiaJD/github_issues.parquet");
-    // dataset_queue.push(env::project_dir + "/benchmarking/data/refined/clickbench.parquet");
+    dataset_queue.push(env::project_dir + "/benchmarking/data/refined/clickbench.parquet");
 
 
     // Create worker threads
