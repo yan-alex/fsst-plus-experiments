@@ -410,12 +410,6 @@ bool process_dataset(Connection &con, const size_t &block_granularity, const str
             std::cout <<"==========START FSST PLUS COMPRESSION==========\n";
             metadata.algo = "fsstplus_twost";
             RunFSSTPlus(con, block_granularity, metadata, n, input, total_string_size);
-
-            // Now run FSST Plus
-            std::cout <<"==========START FSST PLUS COMPRESSION==========\n";
-            metadata.algo = "fsst_plus";
-
-            RunFSSTPlus(con, block_granularity, metadata, n, input, total_string_size);
         } catch (std::exception& e) {
             std::cerr << "🚨 Error processing column" << dataset_name << "." << column_name << ": " << e.what() << std::endl;
             std::cerr << "Moving on to the next column" << std::endl;
