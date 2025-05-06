@@ -120,10 +120,8 @@ inline void VerifyDecompressionCorrectness(const StringCollection &input, const 
     std::cout << "Decompression verified\n";
 };
 
-inline FSSTCompressionResult FSSTCompress(StringCollection &input) {
+inline FSSTCompressionResult FSSTCompress(StringCollection &input, fsst_encoder_t *encoder) {
     const size_t n = input.lengths.size();
-    // Create FSST encoder
-    fsst_encoder_t *encoder = CreateEncoder(input.lengths, input.string_ptrs);
 
     // Compression outputs
     std::vector<size_t> lenOut(n);
@@ -186,7 +184,7 @@ inline void RunBasicFSST(duckdb::Connection &con, StringCollection &input, const
      * ================ COMPRESSION ================
      * ===========================================*/
 
-    const FSSTCompressionResult compression_result = FSSTCompress(input);
+    FSSTCompressionResult compression_result = FSSTCompress(input, encoder);
 
 
     auto end_time = std::chrono::high_resolution_clock::now();

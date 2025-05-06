@@ -35,8 +35,7 @@ uint8_t *FindBlockStart(uint8_t *block_start_offsets, const int i) {
     return block_start;
 }
 
-void DecompressAll(uint8_t *global_header, const fsst_decoder_t &prefix_decoder,
-const fsst_decoder_t &suffix_decoder,
+void DecompressAll(uint8_t *global_header, const fsst_decoder_t &decoder,
 const std::vector<size_t> &lengths_original,
 const std::vector<const unsigned char *> &string_ptrs_original,
 Metadata &metadata
@@ -53,7 +52,7 @@ Metadata &metadata
          */
         const uint8_t *block_stop = FindBlockStart(block_start_offsets, i + 1);
 
-        DecompressBlock(block_start, prefix_decoder, suffix_decoder, block_stop, lengths_original, string_ptrs_original, metadata);
+        DecompressBlock(block_start, decoder, block_stop, lengths_original, string_ptrs_original, metadata);
     }
     std::cout << "Decompression verified\n";
 }
@@ -82,14 +81,12 @@ std::vector<SimilarityChunk> FormBlockwiseSimilarityChunks(const size_t &n, Stri
 
 
 
-FSSTPlusCompressionResult FSSTPlusCompress(const size_t n, std::vector<SimilarityChunk> similarity_chunks, CleavedResult cleaved_result, const size_t &block_granularity) {
+FSSTPlusCompressionResult FSSTPlusCompress(const size_t n, std::vector<SimilarityChunk> similarity_chunks, CleavedResult cleaved_result, const size_t &block_granularity, fsst_encoder_t *encoder) {
     FSSTPlusCompressionResult compression_result{};
+    compression_result.encoder = encoder;
 
-    FSSTCompressionResult prefix_compression_result = FSSTCompress(cleaved_result.prefixes);
-    compression_result.prefix_encoder = prefix_compression_result.encoder;
-
-    FSSTCompressionResult suffix_compression_result = FSSTCompress(cleaved_result.suffixes);
-    compression_result.suffix_encoder = suffix_compression_result.encoder;
+    FSSTCompressionResult prefix_compression_result = FSSTCompress(cleaved_result.prefixes, encoder);
+    FSSTCompressionResult suffix_compression_result = FSSTCompress(cleaved_result.suffixes, encoder);
 
     // Allocate the maximum size possible for the corpus
     size_t max_size = CalcMaxFSSTPlusDataSize(prefix_compression_result,suffix_compression_result);
@@ -280,19 +277,30 @@ void RunFSSTPlus(Connection &con, const size_t &block_granularity, Metadata &met
                     << " PREFIX: " << cleaved_result.prefixes.string_ptrs[i] << "\n";
         }
     }
-    const FSSTPlusCompressionResult compression_result = FSSTPlusCompress(n, similarity_chunks, cleaved_result, block_granularity);
+    fsst_encoder_t *encoder = CreateEncoder(input.lengths, input.string_ptrs);
+
+    const FSSTPlusCompressionResult compression_result = FSSTPlusCompress(n, similarity_chunks, cleaved_result, block_granularity, encoder);
 
     // End timing
     auto end_time = std::chrono::high_resolution_clock::now();
-
+    fsst_decoder_t decoder = fsst_decoder(encoder);
     // decompress to check all went well
-    DecompressAll(compression_result.data_start, fsst_decoder(compression_result.prefix_encoder),
-                  fsst_decoder(compression_result.suffix_encoder), input.lengths, input.string_ptrs, metadata);
+    DecompressAll(compression_result.data_start, decoder, input.lengths, input.string_ptrs, metadata);
 
 
     metadata.run_time_ms = std::chrono::duration<double, std::milli>(end_time - start_time).count();
 
     size_t compressed_size = compression_result.data_end - compression_result.data_start;
+    compressed_size += CalcSymbolTableSize(encoder);
+
+    // Subtract savings of bitpacking global header block offsets
+    uint16_t n_blocks = compression_result.data_start[0];
+    size_t size_of_one_offset = ceil(log2(n_blocks) / 8);
+    size_t bitpacked_offsets_size = n_blocks * size_of_one_offset;
+    size_t non_bitpacked_offsets_size = n_blocks * sizeof(uint32_t);
+    size_t savings = non_bitpacked_offsets_size - bitpacked_offsets_size;
+    printf("Savings of bitpacking global header block offsets: %zu bytes\n", savings);
+    compressed_size -= savings;
     metadata.compression_factor = static_cast<double>(total_string_size) / static_cast<double>(compressed_size);
 
     PrintCompressionStats(n, total_string_size, compressed_size);
@@ -317,8 +325,7 @@ void RunFSSTPlus(Connection &con, const size_t &block_granularity, Metadata &met
     }
 
     // Cleanup
-    fsst_destroy(compression_result.prefix_encoder);
-    fsst_destroy(compression_result.suffix_encoder);
+    fsst_destroy(compression_result.encoder);
     delete[] compression_result.data_start;
 }
 
@@ -341,7 +348,7 @@ bool process_dataset(Connection &con, const size_t &block_granularity, const str
 
     try {
         column_names = GetColumnNames(columns_result); //TODO: Uncomment
-        // column_names = {"fromUseravatarUrlMedium"};
+        // column_names = {"URL"};
     } catch (std::exception& e) {
         std::cerr << "🚨 Error GetColumnNames() with dataset: " << dataset_name << ": " << e.what() << std::endl;
         std::cerr << "Moving on to the next dataset" << std::endl;
@@ -388,17 +395,17 @@ bool process_dataset(Connection &con, const size_t &block_granularity, const str
                 total_string_size += string_length;
             }
 
-            std::cout <<"==========START DICTIONARY COMPRESSION=========\n";
-            metadata.algo = "dictionary";
-            // Calc dict compression
-            RunDictionaryCompression(con, column_name, dataset_path, n, total_string_size, metadata);
+            // std::cout <<"==========START DICTIONARY COMPRESSION=========\n";
+            // metadata.algo = "dictionary";
+            // RunDictionaryCompression(con, column_name, dataset_path, n, total_string_size, metadata);
 
-            // Run Basic FSST for comparison
-            std::cout <<"==========START BASIC FSST COMPRESSION=========\n";
-            metadata.algo = "basic_fsst";
+            // std::cout <<"==========START BASIC FSST COMPRESSION=========\n";
+            // metadata.algo = "basic_fsst";
+            // RunBasicFSST(con, input, total_string_size, metadata);
 
-            RunBasicFSST(con, input, total_string_size, metadata);
-
+            std::cout <<"==========START FSST PLUS COMPRESSION==========\n";
+            metadata.algo = "fsstplus_onest";
+            RunFSSTPlus(con, block_granularity, metadata, n, input, total_string_size);
 
             // Now run FSST Plus
             std::cout <<"==========START FSST PLUS COMPRESSION==========\n";
@@ -511,14 +518,16 @@ void save_results(Connection &con) {
         return;
     }
 
+    std::string filename = "resultsv2bitpacked_";
+    std::string algo = "fsstplus_onest";
     // Save results to parquet file
-    string save_query = "COPY results TO '" + env::project_dir + "/benchmarking/results/results.parquet' (FORMAT 'parquet', OVERWRITE TRUE)";
+    string save_query = "COPY results TO '" + env::project_dir + "/benchmarking/results/" + filename + algo + ".parquet' (FORMAT 'parquet', OVERWRITE TRUE)";
     con.Query(save_query);
 
     // Verify the file was created
-    std::ifstream file_check((env::project_dir + "/benchmarking/results/results.parquet").c_str());
+    std::ifstream file_check((env::project_dir + "/benchmarking/results/" + filename + algo + ".parquet").c_str());
     if (file_check.good()) {
-        std::cout << "Results saved to " << env::project_dir << "/benchmarking/results/results.parquet" << std::endl;
+        std::cout << "Results saved to " << env::project_dir << "/benchmarking/results/" + filename + algo + ".parquet" << std::endl;
     } else {
         std::cerr << "Warning: Results file not found after save operation" << std::endl;
     }
@@ -554,16 +563,15 @@ int main() {
     // Create a thread-safe queue for distributing work
     ThreadSafeQueue dataset_queue;
     
-    // for (const auto& dataset_path : datasets) { //TODO: Uncomment
-    //     dataset_queue.push(dataset_path);
-    // }
+    for (const auto& dataset_path : datasets) { //TODO: Uncomment
+        dataset_queue.push(dataset_path);
+    }
 
     // dataset_queue.push(env::project_dir + "/benchmarking/data/refined/NextiaJD/freecodecamp_casual_chatroom.parquet");
     // dataset_queue.push(env::project_dir + "/benchmarking/data/refined/NextiaJD/glassdoor.parquet");
     // dataset_queue.push(env::project_dir + "/benchmarking/data/refined/NextiaJD/glassdoor_photos.parquet");
     // dataset_queue.push(env::project_dir + "/benchmarking/data/refined/NextiaJD/github_issues.parquet");
-    dataset_queue.push(env::project_dir + "/benchmarking/data/refined/clickbench.parquet");
-
+    // dataset_queue.push(env::project_dir + "/benchmarking/data/refined/clickbench.parquet");
 
     
     // Create worker threads
