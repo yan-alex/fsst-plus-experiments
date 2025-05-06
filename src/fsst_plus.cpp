@@ -595,6 +595,7 @@ int main() {
 
     // Create worker threads
     std::vector<std::thread> threads;
+    threads.reserve(num_threads);
     for (int i = 0; i < num_threads; i++) {
         threads.emplace_back(worker_thread, i, std::ref(dataset_queue), std::ref(db), std::ref(block_granularity));
     }

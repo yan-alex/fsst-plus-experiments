@@ -49,13 +49,14 @@ inline void PrintStringWithSplitPoints(
     const SimilarityChunk &chunk,
     const size_t string_index
 ) {
-    std::cout << "string" << string_index << ": ";
+    std::cout << "string " << std::setw(3) << string_index << ": ";
     for (size_t j = 0; j < chunk.prefix_length; j++) {
-        std::cout << strIn[chunk.start_index][j];
+        std::cout << static_cast<int>(strIn[chunk.start_index][j]) << " ";
     }
+
     std::cout << "✳️"; // ✳️ = split point
     for (size_t j = 0; j < suffixLenIn[suffixLenIn.size() - 1]; j++) {
-        std::cout << suffixStrIn[suffixStrIn.size() - 1][j];
+        std::cout << static_cast<int>(suffixStrIn[suffixStrIn.size() - 1][j]) << " ";
     }
     std::cout << "\n";
 }
