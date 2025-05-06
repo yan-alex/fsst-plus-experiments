@@ -567,15 +567,15 @@ int main() {
     // Create a thread-safe queue for distributing work
     ThreadSafeQueue dataset_queue;
     
-    // for (const auto& dataset_path : datasets) { //TODO: Uncomment
-    //     dataset_queue.push(dataset_path);
-    // }
+    for (const auto& dataset_path : datasets) { //TODO: Uncomment
+        dataset_queue.push(dataset_path);
+    }
 
     // dataset_queue.push(env::project_dir + "/benchmarking/data/refined/NextiaJD/freecodecamp_casual_chatroom.parquet");
     // dataset_queue.push(env::project_dir + "/benchmarking/data/refined/NextiaJD/glassdoor.parquet");
     // dataset_queue.push(env::project_dir + "/benchmarking/data/refined/NextiaJD/glassdoor_photos.parquet");
     // dataset_queue.push(env::project_dir + "/benchmarking/data/refined/NextiaJD/github_issues.parquet");
-    dataset_queue.push(env::project_dir + "/benchmarking/data/refined/clickbench.parquet");
+    // dataset_queue.push(env::project_dir + "/benchmarking/data/refined/clickbench.parquet");
 
 
     
