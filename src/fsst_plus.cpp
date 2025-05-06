@@ -404,7 +404,7 @@ bool process_dataset(Connection &con, const size_t &block_granularity, const str
             // RunBasicFSST(con, input, total_string_size, metadata);
 
             std::cout <<"==========START FSST PLUS COMPRESSION==========\n";
-            metadata.algo = "fsstplus_onest_compressbefore";
+            metadata.algo = "fsstplus_onest";
             RunFSSTPlus(con, block_granularity, metadata, n, input, total_string_size);
 
             // Now run FSST Plus
@@ -519,7 +519,7 @@ void save_results(Connection &con) {
     }
 
     std::string filename = "resultsv2bitpacked_";
-    std::string algo = "fsstplus_onest_compressbefore";
+    std::string algo = "fsstplus_onest";
     // Save results to parquet file
     string save_query = "COPY results TO '" + env::project_dir + "/benchmarking/results/" + filename + algo + ".parquet' (FORMAT 'parquet', OVERWRITE TRUE)";
     con.Query(save_query);
