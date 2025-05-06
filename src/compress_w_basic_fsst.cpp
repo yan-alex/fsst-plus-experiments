@@ -75,6 +75,16 @@ int main(int argc, char* argv[]) {
         for (size_t i = 0; i < compression_result.encoded_string_lengths.size(); i++) {
             total_compressed_size += compression_result.encoded_string_lengths[i];
         }
+        total_compressed_size += CalcSymbolTableSize(&encoder);
+        
+
+        // Add bitpacked offsets size
+        size_t size_of_one_offset = 0; 
+        if (input.lengths.size() > 0) { // Handle log2(0) case
+            size_of_one_offset = ceil(log2(input.lengths.size()) / 8);
+        }
+        size_t total_offsets_size = input.lengths.size() * size_of_one_offset;
+        total_compressed_size += total_offsets_size;
         printf("FSST_COMPRESSED_SIZE=%zu\n", total_compressed_size);
         if (cleanup_needed) {
             remove(decompressed_path.c_str());

@@ -2,7 +2,7 @@
 #include <fsst.h>
 #include <print_utils.h>
 #include <string>
-
+#include <cmath>
 #include "duckdb.hpp"
 #include "duckdb_utils.h"
 #include <string>
@@ -215,6 +215,13 @@ inline void RunBasicFSST(duckdb::Connection &con, StringCollection &input, const
     total_compressed_string_size += CalcSymbolTableSize(encoder);
     total_strings_amount += input.lengths.size();
 
+    // Add bitpacked offsets size
+    size_t size_of_one_offset = 0; 
+    if (total_strings_amount > 0) { // Handle log2(0) case
+        size_of_one_offset = ceil(log2(total_strings_amount) / 8);
+    }
+    size_t total_offsets_size = total_strings_amount * size_of_one_offset;
+    total_compressed_string_size += total_offsets_size;
 
     // Free FSST encoder and output buffer for this batch
     fsst_destroy(encoder);

@@ -6,7 +6,7 @@ import tempfile
 import subprocess
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
-
+from datetime import datetime
 # Define custom temp directory on /bigstore
 TEMP_DIR = "/bigstore/yan/temp_fsst"
 # Create temp directory if it doesn't exist
@@ -57,16 +57,16 @@ def refine_dataset(input_path: PurePath, output_path: PurePath):
             col_type = col_types_map[col]
             col_type_str = str(col_type).upper()
 
-            non_null_count_result = relation.aggregate(f'count("{col}")').fetchone()
-            non_null_count = non_null_count_result[0]
+            # non_null_count_result = relation.aggregate(f'count("{col}")').fetchone()
+            # non_null_count = non_null_count_result[0]
             
             avg_len_query = f'avg(length(CAST("{col}" AS VARCHAR)))'
             avg_len_result = relation.aggregate(avg_len_query).fetchone()
             avg_len = avg_len_result[0] if avg_len_result and avg_len_result[0] is not None else 0
             
             if (col_type_str != 'VARCHAR' or # Not a string column
-                non_null_count < math.ceil(total_rows / 2.0) or # More than 50% non-null
-                avg_len <= 5): # Avg length <= 5
+                # non_null_count < math.ceil(total_rows / 2.0) or # More than 50% non-null
+                avg_len <= 8):
                 print(f"Skipping column '{col}")
                 continue
             
@@ -125,7 +125,7 @@ def refine_dataset(input_path: PurePath, output_path: PurePath):
             
             # Compare sizes and decide whether to include the column
             if fsst_size is not None:
-                if fsst_size <= dict_size * 2:
+                if fsst_size <= dict_size * 2: #TODO: && fsst_plus_size <= dict_size * 2
                     text_columns.append(col)
                     print(f"👍 Column '{col}' passes filter: FSST size ({fsst_size}) is not 2x bigger than dictionary size ({dict_size}). Including.")
                 else:
@@ -226,10 +226,10 @@ def process_raw_directory(raw_dir: str = "../../data/raw", output_dir: str = "..
     skipped_count = len(files_to_process) - processed_count
 
     print(f"🌐 Macrodata Refinement Complete 🌐")
+    print(f"🕒 Current time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"Processed {len(files_to_process)} files:")
     print(f"  ✅ {processed_count} files matched the criteria and were refined.")
     print(f"  ⏭️ {skipped_count} files were skipped (no compatible columns or errors).")
-
 
 if __name__ == "__main__":
     process_raw_directory()
