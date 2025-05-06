@@ -293,6 +293,17 @@ void RunFSSTPlus(Connection &con, const size_t &block_granularity, Metadata &met
     metadata.run_time_ms = std::chrono::duration<double, std::milli>(end_time - start_time).count();
 
     size_t compressed_size = compression_result.data_end - compression_result.data_start;
+    compressed_size += CalcSymbolTableSize(compression_result.prefix_encoder);
+    compressed_size += CalcSymbolTableSize(compression_result.suffix_encoder);
+
+    // Subtract savings of bitpacking global header block offsets
+    uint16_t n_blocks = compression_result.data_start[0];
+    size_t size_of_one_offset = ceil(log2(n_blocks) / 8);
+    size_t bitpacked_offsets_size = n_blocks * size_of_one_offset;
+    size_t non_bitpacked_offsets_size = n_blocks * sizeof(uint32_t);
+    size_t savings = non_bitpacked_offsets_size - bitpacked_offsets_size;
+    printf("Savings of bitpacking global header block offsets: %zu bytes\n", savings);
+    compressed_size -= savings;
     metadata.compression_factor = static_cast<double>(total_string_size) / static_cast<double>(compressed_size);
 
     PrintCompressionStats(n, total_string_size, compressed_size);
@@ -388,17 +399,17 @@ bool process_dataset(Connection &con, const size_t &block_granularity, const str
                 total_string_size += string_length;
             }
 
-            std::cout <<"==========START DICTIONARY COMPRESSION=========\n";
-            metadata.algo = "dictionary";
-            // Calc dict compression
-            RunDictionaryCompression(con, column_name, dataset_path, n, total_string_size, metadata);
+            // std::cout <<"==========START DICTIONARY COMPRESSION=========\n";
+            // metadata.algo = "dictionary";
+            // RunDictionaryCompression(con, column_name, dataset_path, n, total_string_size, metadata);
 
-            // Run Basic FSST for comparison
-            std::cout <<"==========START BASIC FSST COMPRESSION=========\n";
-            metadata.algo = "basic_fsst";
+            // std::cout <<"==========START BASIC FSST COMPRESSION=========\n";
+            // metadata.algo = "basic_fsst";
+            // RunBasicFSST(con, input, total_string_size, metadata);
 
-            RunBasicFSST(con, input, total_string_size, metadata);
-
+            std::cout <<"==========START FSST PLUS COMPRESSION==========\n";
+            metadata.algo = "fsstplus_twost";
+            RunFSSTPlus(con, block_granularity, metadata, n, input, total_string_size);
 
             // Now run FSST Plus
             std::cout <<"==========START FSST PLUS COMPRESSION==========\n";
@@ -511,14 +522,16 @@ void save_results(Connection &con) {
         return;
     }
 
+    std::string filename = "resultsv2bitpacked_";
+    std::string algo = "fsstplus_twost";
     // Save results to parquet file
-    string save_query = "COPY results TO '" + env::project_dir + "/benchmarking/results/results.parquet' (FORMAT 'parquet', OVERWRITE TRUE)";
+    string save_query = "COPY results TO '" + env::project_dir + "/benchmarking/results/" + filename + algo + ".parquet' (FORMAT 'parquet', OVERWRITE TRUE)";
     con.Query(save_query);
 
     // Verify the file was created
-    std::ifstream file_check((env::project_dir + "/benchmarking/results/results.parquet").c_str());
+    std::ifstream file_check((env::project_dir + "/benchmarking/results/" + filename + algo + ".parquet").c_str());
     if (file_check.good()) {
-        std::cout << "Results saved to " << env::project_dir << "/benchmarking/results/results.parquet" << std::endl;
+        std::cout << "Results saved to " << env::project_dir << "/benchmarking/results/" + filename + algo + ".parquet" << std::endl;
     } else {
         std::cerr << "Warning: Results file not found after save operation" << std::endl;
     }
