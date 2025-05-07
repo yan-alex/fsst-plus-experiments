@@ -9,7 +9,7 @@
 #include <limits>
 
 // Sort all strings based on their starting characters truncated to the largest multiple of 8 bytes (up to config::max_prefix_size bytes)
-inline void TruncatedSort(std::vector<size_t> &lenIn, std::vector<unsigned char *> &strIn,
+inline void Sort(std::vector<size_t> &lenIn, std::vector<unsigned char *> &strIn,
                            const size_t start_index, const size_t cleaving_run_n, StringCollection &input) {
     // Create index array
     std::vector<size_t> indices(cleaving_run_n);
@@ -20,12 +20,12 @@ inline void TruncatedSort(std::vector<size_t> &lenIn, std::vector<unsigned char 
     // Sort indices based on truncated string comparison
     std::sort(indices.begin(), indices.end(), [&](size_t i, size_t j) {
         // Calculate truncated lengths as largest multiple of 8 <= min(config::max_prefix_size, original length)
-        const size_t len_i = std::min(lenIn[i], config::max_prefix_size) & ~7;
-        const size_t len_j = std::min(lenIn[j], config::max_prefix_size) & ~7;
+        const size_t len_i = std::min(lenIn[i], config::max_prefix_size); //& ~7;
+        const size_t len_j = std::min(lenIn[j], config::max_prefix_size);//& ~7;
 
         // Compare truncated strings
         const int cmp = memcmp(strIn[i], strIn[j], std::min(len_i, len_j));
-        return cmp < 0 || (cmp == 0 && len_i < len_j);
+        return cmp < 0 || (cmp == 0 && len_i > len_j);
     });
 
 
