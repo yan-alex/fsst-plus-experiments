@@ -21,10 +21,10 @@
 
 namespace config {
     constexpr size_t total_strings = 100; // # of input strings
-    constexpr bool print_sorted_corpus = false;
+    constexpr bool print_sorted_corpus = true;
     constexpr bool print_split_points = true; // prints compressed corpus displaying split points
     constexpr bool print_similarity_chunks = true;
-    constexpr bool print_decompressed_corpus = false;
+    constexpr bool print_decompressed_corpus = true;
 }
 
 
@@ -58,8 +58,8 @@ Metadata &metadata
 }
 
 
-std::vector<SimilarityChunk> FormBlockwiseSimilarityChunks(const size_t &n, FSSTCompressionResult &input_compressed, const size_t &block_granularity, StringCollection &input) {
-    std::vector<SimilarityChunk> similarity_chunks;
+std::vector<EnhancedSimilarityChunk> FormBlockwiseSimilarityChunks(const size_t &n, FSSTCompressionResult &input_compressed, const size_t &block_granularity, StringCollection &input) {
+    std::vector<EnhancedSimilarityChunk> similarity_chunks;
     similarity_chunks.reserve(n);
 
     // Figure out the optimal split points (similarity chunks)
@@ -70,7 +70,7 @@ std::vector<SimilarityChunk> FormBlockwiseSimilarityChunks(const size_t &n, FSST
 
         Sort(input_compressed.encoded_string_lengths, input_compressed.encoded_string_ptrs, i, cleaving_run_n, input);
 
-        const std::vector<SimilarityChunk> cleaving_run_similarity_chunks = FormSimilarityChunks(
+        const std::vector<EnhancedSimilarityChunk> cleaving_run_similarity_chunks = FormEnhancedSimilarityChunks(
             input_compressed.encoded_string_lengths, input_compressed.encoded_string_ptrs, i, cleaving_run_n);
         similarity_chunks.insert(similarity_chunks.end(),
                                  cleaving_run_similarity_chunks.begin(),
@@ -81,7 +81,7 @@ std::vector<SimilarityChunk> FormBlockwiseSimilarityChunks(const size_t &n, FSST
 
 
 
-FSSTPlusCompressionResult FSSTPlusCompress(const size_t n, const std::vector<SimilarityChunk> &similarity_chunks, const CleavedResult &cleaved_result, const size_t &block_granularity, fsst_encoder_t *encoder) {
+FSSTPlusCompressionResult FSSTPlusCompress(const size_t n, const std::vector<EnhancedSimilarityChunk> &similarity_chunks, const CleavedResult &cleaved_result, const size_t &block_granularity, fsst_encoder_t *encoder) {
     FSSTPlusCompressionResult compression_result{};
     compression_result.encoder = encoder;
 
@@ -281,25 +281,28 @@ void RunFSSTPlus(Connection &con, const size_t &block_granularity, Metadata &met
     FSSTCompressionResult input_compressed = FSSTCompress(input, encoder);
     // PrintFSSTCompressionResult(input_compressed);
 
-    const std::vector<SimilarityChunk> similarity_chunks = FormBlockwiseSimilarityChunks(n, input_compressed, block_granularity, input);
+    const std::vector<EnhancedSimilarityChunk> similarity_chunks = FormBlockwiseSimilarityChunks(n, input_compressed, block_granularity, input);
 
     const CleavedResult cleaved_result = Cleave(input_compressed.encoded_string_lengths, input_compressed.encoded_string_ptrs, similarity_chunks, n);
 
-    if (config::print_similarity_chunks) {
-        std::cout << "🤓 Similarity Chunks 🤓\n";
-        for (int i = 0; i < similarity_chunks.size(); ++i) {
-            std::cout
-                    // << "i:" << std::setw(6) << i
-                    << " start_index: " << std::setw(6)<< similarity_chunks[i].start_index << " prefix_length: " << std::setw(3) <<similarity_chunks[i].prefix_length
-                    << " PREFIX: ";
+    // if (config::print_similarity_chunks) {
+    //     std::cout << "🤓 Similarity Chunks 🤓\n";
+    //     for (int i = 0; i < similarity_chunks.size(); ++i) {
+    //         std::cout
+    //                 // << "i:" << std::setw(6) << i
+    //                 << " start_index: " << std::setw(6)<< similarity_chunks[i].start_index << " prefix_length: " << std::setw(3) <<similarity_chunks[i].
+    //                 << " PREFIX: ";
+    //
+    //         for (size_t j = 0; j < similarity_chunks[i].prefix_length; ++j) {
+    //             std::cout << static_cast<int>(*(cleaved_result.prefixes.string_ptrs[i]+j)) << " ";
+    //         }
+    //         printf("\n");
+    //     }
+    // }
 
-            for (size_t j = 0; j < similarity_chunks[i].prefix_length; ++j) {
-                std::cout << static_cast<int>(*(cleaved_result.prefixes.string_ptrs[i]+j)) << " ";
-            }
-            printf("\n");
-        }
-    }
-    const FSSTPlusCompressionResult compression_result = FSSTPlusCompress(n, similarity_chunks, cleaved_result, block_granularity, encoder);
+
+    // const FSSTPlusCompressionResult compression_result{};
+    const FSSTPlusCompressionResult compression_result = FSSTPlusCompress(n, similarity_chunks, cleaved_result, block_granularity, encoder); // TODO:UNCOMMENT
 
     // End timing
     auto end_time = std::chrono::high_resolution_clock::now();

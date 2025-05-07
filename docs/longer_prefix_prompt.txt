@@ -1,0 +1,197 @@
+I want to change my current algorithm so that not all strings in the similarity chunk have the same prefix length, but they can have smaller prefix lengths to be able to reuse the same, longer prefix. 
+An example of what my algorithm is currently doing (✳️ signifies the split point, aka the prefix length for the chunk): 
+
+string   7: 🟦56 21 178 ... goes on ...  143 159 ✳️24 54 11 
+string   8: 🟦56 21 178 ... goes on ...  143 159 ✳️24 54 11 
+string   9: 🟦56 21 178 ... goes on ...  143 159 ✳️24 54 11 
+string  10: 🟦56 21 178 ... goes on ...  143 159 ✳️24 54 11 
+string  11: 🟦56 21 178 ... goes on ...  143 159 ✳️24 54 11 
+string  12: 🟦56 21 178 ... goes on ...  143 159 ✳️24 54 11 
+string  13: 🟦56 21 178 ... goes on ...  143 159 ✳️24 54 11 
+string  14: 🟦56 21 178 ... goes on ...  143 159 ✳️24 54 11 
+string  15: 🟦56 21 178 ... goes on ...  143 159 ✳️24 54 11 
+string  16: 🟦56 21 178 ... goes on ...  143 159 ✳️24 54 11 
+string  17: 🟦56 21 178 ... goes on ...  143 159 ✳️35 150 54 126 
+string  18: 🟦56 21 178 ... goes on ...  143 159 ✳️35 150 54 126 
+string  19: 🟦56 21 178 ... goes on ...  143 159 ✳️35 150 54 126 
+string  20: 🟦56 21 178 ... goes on ...  143 159 ✳️35 150 54 126 
+string  21: 🟦56 21 178 ... goes on ...  143 159 ✳️35 150 54 126 
+string  22: 🟦56 21 178 ... goes on ...  143 159 ✳️35 150 54 126 
+string  23: 🟦56 21 178 ... goes on ...  143 159 ✳️35 150 54 126 
+string  24: 🟦56 21 178 ... goes on ...  143 159 ✳️35 150 54 126 
+
+In this case, the best gain would be getting the prefix that ends with 35 150 54 126, because its 4 chars long and 8 strings have it, 4*8 = 32 bytes savings, compared to 3*10 = 30 for the other prefix. How do I go about this?
+I would like an outcome like this:
+
+string   7: 🟦56 21 178 ... goes on ...  143 159 ✳️24 54 11 
+string   8: 🟦56 21 178 ... goes on ...  143 159 ✳️24 54 11 
+string   9: 🟦56 21 178 ... goes on ...  143 159 ✳️24 54 11 
+string  10: 🟦56 21 178 ... goes on ...  143 159 ✳️24 54 11 
+string  11: 🟦56 21 178 ... goes on ...  143 159 ✳️24 54 11 
+string  12: 🟦56 21 178 ... goes on ...  143 159 ✳️24 54 11 
+string  13: 🟦56 21 178 ... goes on ...  143 159 ✳️24 54 11 
+string  14: 🟦56 21 178 ... goes on ...  143 159 ✳️24 54 11 
+string  15: 🟦56 21 178 ... goes on ...  143 159 ✳️24 54 11 
+string  16: 🟦56 21 178 ... goes on ...  143 159 ✳️24 54 11 
+string  17: 🟦56 21 178 ... goes on ...  143 159 35 150 54 126 ✳️ (the chunk's prefix)
+string  18: 🟦56 21 178 ... goes on ...  143 159 35 150 54 126 ✳️
+string  19: 🟦56 21 178 ... goes on ...  143 159 35 150 54 126 ✳️
+string  20: 🟦56 21 178 ... goes on ...  143 159 35 150 54 126 ✳️
+string  21: 🟦56 21 178 ... goes on ...  143 159 35 150 54 126 ✳️
+string  22: 🟦56 21 178 ... goes on ...  143 159 35 150 54 126 ✳️
+string  23: 🟦56 21 178 ... goes on ...  143 159 35 150 54 126 ✳️
+string  24: 🟦56 21 178 ... goes on ...  143 159 35 150 54 126 ✳️
+
+Where the chunk's prefix is one of the ones ending in 35 150 54 126 as that gives the most gain.
+
+<Code>
+$$$ SORTING $$$
+inline void Sort(std::vector<size_t> &lenIn, std::vector<unsigned char *> &strIn,
+                           const size_t start_index, const size_t cleaving_run_n, StringCollection &input) {
+    // Create index array
+    std::vector<size_t> indices(cleaving_run_n);
+    for (size_t i = start_index; i < start_index + cleaving_run_n; ++i) {
+        indices[i - start_index] = i;
+    }
+
+    std::sort(indices.begin(), indices.end(), [&](size_t i, size_t j) {
+        const size_t len_i = std::min(lenIn[i], config::max_prefix_size); //& ~7;
+        const size_t len_j = std::min(lenIn[j], config::max_prefix_size);//& ~7;
+
+        const int cmp = memcmp(strIn[i], strIn[j], std::min(len_i, len_j));
+        return cmp < 0 || (cmp == 0 && len_i > len_j);
+    });
+
+
+    // Reorder both vectors based on sorted indices
+    const std::vector<size_t> tmp_len(lenIn);
+    const std::vector<unsigned char *> tmp_str(strIn);
+
+    // Create temporary copies of the original input vectors
+    const std::vector<size_t> tmp_input_lengths(input.lengths);
+    const std::vector<const unsigned char *> tmp_input_string_ptrs(input.string_ptrs);
+
+    for (size_t k = 0; k < cleaving_run_n; ++k) {
+        lenIn[start_index + k] = tmp_len[indices[k]];
+        strIn[start_index + k] = tmp_str[indices[k]];
+
+        // ALSO REORDER THE ORIGINAL UNCOMPRESSED INPUT
+        // we do this to be able to pairwise compare later on when we verify decompression, to see if it matches with the original
+        input.lengths[start_index + k] = tmp_input_lengths[indices[k]];
+        input.string_ptrs[start_index + k] = tmp_input_string_ptrs[indices[k]];
+    }
+
+    // Print strings
+    if (config::print_sorted_corpus) {
+        std::cout << "Sorted strings: \n";
+        PrintEncodedStrings(lenIn, strIn);
+    }
+}
+
+$$$ DYNAMIC PROGRAMMING $$$
+
+struct SimilarityChunk {
+    size_t start_index; // Starts here and goes on until next chunk's index, or until the end of the 128 block
+    size_t prefix_length;
+};
+
+inline std::vector<SimilarityChunk> FormSimilarityChunks(
+    const std::vector<size_t> &lenIn,
+    const std::vector<unsigned char *> &strIn,
+    const size_t start_index,
+    const size_t size) {
+    if (size == 0) return {}; // No strings to process
+
+    std::vector<size_t> lcp(size - 1); // LCP between consecutive strings
+    std::vector<std::vector<size_t> > min_lcp(size, std::vector<size_t>(size));
+
+    // Precompute LCPs up to config::max_prefix_size characters
+    for (size_t i = 0; i < size - 1; ++i) {
+        const size_t max_lcp = std::min(std::min(lenIn[start_index + i], lenIn[start_index + i + 1]), config::max_prefix_size);
+        size_t l = 0;
+        const unsigned char *s1 = strIn[start_index + i];
+        const unsigned char *s2 = strIn[start_index + i + 1];
+        while (l < max_lcp && s1[l] == s2[l]) {
+            ++l;
+        }
+        // Prevents splitting the escape code 255 from its escaped byte.
+        if (l!=0 && static_cast<int>(s1[l-1]) == 255) {
+            --l;
+        }
+        lcp[i] = l;
+    }
+    // Precompute min_lcp[i][j]
+    for (size_t i = 0; i < size; ++i) {
+        min_lcp[i][i] = std::min(lenIn[start_index + i], config::max_prefix_size);
+        for (size_t j = i + 1; j < size; ++j) {
+            min_lcp[i][j] = std::min(min_lcp[i][j - 1], lcp[j - 1]);
+        }
+    }
+
+    // Precompute prefix sums of string lengths (cumulatively adding the length of each element)
+    std::vector<size_t> length_prefix_sum(size + 1, 0);
+    for (size_t i = 0; i < size; ++i) {
+        length_prefix_sum[i + 1] = length_prefix_sum[i] + lenIn[start_index + i];
+    }
+
+    constexpr size_t INF = std::numeric_limits<size_t>::max();
+    std::vector<size_t> dp(size + 1, INF);
+    std::vector<size_t> prev(size + 1, 0);
+    std::vector<size_t> p_for_i(size + 1, 0);
+
+    dp[0] = 0;
+
+    // Dynamic programming to find the optimal partitioning
+    for (size_t i = 1; i <= size; ++i) {
+        for (size_t j = 0; j < i; ++j) {
+            const size_t min_common_prefix = min_lcp[j][i - 1]; // can be max 128 a.k.a. config::max_prefix_size
+            size_t p = 0;
+            while (p <= min_common_prefix) {
+                const size_t n = i - j;
+                const size_t per_string_overhead = 1 + (p > 0 ? 2 : 0); // 1 because u will always exist, 2 for pointer
+                const size_t overhead = n * per_string_overhead;
+                const size_t sum_len = length_prefix_sum[i] - length_prefix_sum[j];
+                const size_t total_cost = dp[j] + overhead + sum_len - (n - 1) * p; // (n - 1) * p is the compression gain. n are strings in current range, p is the common prefix length in this range
+
+                if (total_cost < dp[i]) {
+                    dp[i] = total_cost;
+                    prev[i] = j;
+                    p_for_i[i] = p;
+                }
+                if (p < min_common_prefix and p + 8 > min_common_prefix) {
+                    p = min_common_prefix;
+                }else {
+                    p += 8;
+                }
+            }
+        }
+    }
+
+    // Reconstruct the chunks and their prefix lengths
+    std::vector<SimilarityChunk> chunks;
+    size_t idx = size;
+    while (idx > 0) {
+        const size_t start_idx = prev[idx];
+        const size_t prefix_length = p_for_i[idx];
+        SimilarityChunk chunk;
+        chunk.start_index = start_index + start_idx;
+        chunk.prefix_length = prefix_length;
+        chunks.push_back(chunk);
+        idx = start_idx;
+    }
+    // The chunks are reversed, so we need to reverse them back
+    std::reverse(chunks.begin(), chunks.end());
+
+    return chunks;
+}
+
+
+</Code>
+
+I propose using a new SimilarityChunk like so:
+
+struct EnhancedSimilarityChunk {
+    size_t start_index; // Starts here and goes on until next chunk's index, or until the end of the 128 block
+    size_t prefix_index; // which string of this chunk will be used as the prefix
+    std::vector<size_t> prefix_lengths; // for the chunk's prefix, it is always the full length
+};

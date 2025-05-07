@@ -46,7 +46,7 @@ inline StringCollection RetrieveData(const unique_ptr<MaterializedQueryResult> &
     return input;
 }
 
-inline FSSTPlusSizingResult SizeEverything(const size_t &n, const std::vector<SimilarityChunk> &similarity_chunks, const CleavedResult &cleaved_result, const size_t &block_granularity) {
+inline FSSTPlusSizingResult SizeEverything(const size_t &n, const std::vector<EnhancedSimilarityChunk> &similarity_chunks, const CleavedResult &cleaved_result, const size_t &block_granularity) {
     // First calculate total size of all blocks
     std::vector<BlockWritingMetadata> wms;
     std::vector<size_t> block_sizes_pfx_summed;

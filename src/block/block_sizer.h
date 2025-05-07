@@ -23,13 +23,14 @@ inline bool TryAddPrefix(BlockSizingMetadata &sm,
 }
 
 inline size_t CalculateSuffixPlusHeaderSize(const Suffixes &suffixes,
-                                  const std::vector<SimilarityChunk> &similarity_chunks,
+                                  const std::vector<EnhancedSimilarityChunk> &similarity_chunks,
                                   const size_t suffix_index) {
     const size_t suffix_encoded_length = suffixes.lengths[suffix_index];
     constexpr size_t prefix_length_byte = sizeof(uint8_t);
-    const bool suffix_has_prefix = (similarity_chunks[FindSimilarityChunkCorrespondingToIndex(
+    EnhancedSimilarityChunk chunk = similarity_chunks[FindSimilarityChunkCorrespondingToIndex(
                                 suffix_index, similarity_chunks
-                              )].prefix_length != 0);
+                              )];
+    const bool suffix_has_prefix = (chunk.prefix_lengths[suffix_index-chunk.start_index] != 0);
     const size_t jumpback_size = suffix_has_prefix ? sizeof(uint16_t) : 0;
     return suffix_encoded_length + prefix_length_byte + jumpback_size;
 }
@@ -46,7 +47,7 @@ inline bool CanFitInBlock(const BlockSizingMetadata &bsm,
  * This function's purpose is to figure out how many prefixes and suffixes can be grouped into a single block,
  * without exceeding the block’s byte capacity
  */
-inline size_t CalculateBlockSizeAndPopulateWritingMetadata(const std::vector<SimilarityChunk> &similarity_chunks,
+inline size_t CalculateBlockSizeAndPopulateWritingMetadata(const std::vector<EnhancedSimilarityChunk> &similarity_chunks,
                                  const CleavedResult &cleaved_result,
                                  BlockWritingMetadata &wm,
                                  const size_t suffix_area_start_index,
@@ -88,8 +89,8 @@ inline size_t CalculateBlockSizeAndPopulateWritingMetadata(const std::vector<Sim
 
         // Update suffix metadata
         wm.suffix_offsets_from_first_suffix[wm.number_of_suffixes] = wm.suffix_area_size;
-        wm.suffix_encoded_prefix_lengths[wm.number_of_suffixes] =
-            cleaved_result.prefixes.lengths[prefix_index];
+        EnhancedSimilarityChunk chunk = similarity_chunks[prefix_index];
+        wm.suffix_encoded_prefix_lengths[wm.number_of_suffixes] = chunk.prefix_lengths[wm.number_of_suffixes - chunk.start_index];
         wm.suffix_prefix_index[wm.number_of_suffixes] = wm.number_of_prefixes - 1; // -1 because we increased it earlier
         wm.suffix_area_size += suffix_size;
         wm.number_of_suffixes += 1;

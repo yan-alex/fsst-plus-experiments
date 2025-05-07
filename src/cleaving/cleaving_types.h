@@ -8,6 +8,12 @@ struct SimilarityChunk {
     size_t prefix_length;
 };
 
+struct EnhancedSimilarityChunk {
+    size_t start_index; // Starts here and goes on until next chunk's index, or until the end of the 128 block
+    size_t prefix_index; // which string of this chunk will be used as the prefix
+    std::vector<size_t> prefix_lengths; // for the chunk's prefix, it is always the full length
+};
+
 // Common base struct for Prefixes and Suffixes
 struct StringCollection {
     std::vector<size_t> lengths;

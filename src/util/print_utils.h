@@ -46,11 +46,18 @@ inline void PrintStringWithSplitPoints(
     const std::vector<unsigned char *> &strIn,
     const std::vector<size_t> &suffixLenIn,
     const std::vector<const unsigned char *> &suffixStrIn,
-    const SimilarityChunk &chunk,
-    const size_t string_index
+    const EnhancedSimilarityChunk &chunk,
+    const size_t string_index,
+    bool chunk_alternator
 ) {
-    std::cout << "string " << std::setw(3) << string_index << ": ";
-    for (size_t j = 0; j < chunk.prefix_length; j++) {
+    std::string chunk_flag;
+    if (chunk_alternator) {
+        chunk_flag = "🟥";
+    } else {
+        chunk_flag = "🟦";
+    }
+    std::cout << "string " << std::setw(3) << string_index << ": " << chunk_flag;
+    for (size_t j = 0; j < chunk.prefix_lengths[string_index - chunk.start_index]; j++) {
         std::cout << static_cast<int>(strIn[chunk.start_index][j]) << " ";
     }
 

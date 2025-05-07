@@ -27,7 +27,7 @@ inline bool TextMatches(const unsigned char *result, const unsigned char *origin
 }
 
 inline size_t FindSimilarityChunkCorrespondingToIndex(const size_t &target_index,
-                                                           const std::vector<SimilarityChunk> &similarity_chunks) {
+                                                           const std::vector<EnhancedSimilarityChunk> &similarity_chunks) {
     assert(!similarity_chunks.empty());
     assert(target_index >= similarity_chunks[0].start_index);
 
