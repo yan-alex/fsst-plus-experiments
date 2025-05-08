@@ -20,11 +20,11 @@
 #include <condition_variable>
 
 namespace config {
-    constexpr size_t total_strings = 1000; // # of input strings
+    constexpr size_t total_strings = 500; // # of input strings
     constexpr bool print_sorted_corpus = false;
-    constexpr bool print_split_points = false; // prints compressed corpus displaying split points
-    constexpr bool print_similarity_chunks = false;
-    constexpr bool print_decompressed_corpus = false;
+    constexpr bool print_split_points = true; // prints compressed corpus displaying split points
+    constexpr bool print_similarity_chunks = true;
+    constexpr bool print_decompressed_corpus = true;
 }
 
 
@@ -290,7 +290,7 @@ void RunFSSTPlus(Connection &con, const size_t &block_granularity, Metadata &met
     //     for (int i = 0; i < similarity_chunks.size(); ++i) {
     //         std::cout
     //                 // << "i:" << std::setw(6) << i
-    //                 << " start_index: " << std::setw(6)<< similarity_chunks[i].start_index << " prefix_length: " << std::setw(3) <<similarity_chunks[i].
+    //                 << " start_index: " << std::setw(6)<< similarity_chunks[i].start_index << " prefix_lengths: " << std::setw(3) <<similarity_chunks[i].
     //                 << " PREFIX: ";
     //
     //         for (size_t j = 0; j < similarity_chunks[i].prefix_length; ++j) {
@@ -308,7 +308,7 @@ void RunFSSTPlus(Connection &con, const size_t &block_granularity, Metadata &met
     fsst_decoder_t decoder = fsst_decoder(encoder);
 
     // decompress to check all went well
-    // DecompressAll(compression_result.data_start, decoder, input.lengths, input.string_ptrs, metadata); //TODO: UNCOMMENT
+    DecompressAll(compression_result.data_start, decoder, input.lengths, input.string_ptrs, metadata); //TODO: UNCOMMENT
 
 
     metadata.run_time_ms = std::chrono::duration<double, std::milli>(end_time - start_time).count();

@@ -56,14 +56,21 @@ inline void PrintStringWithSplitPoints(
     } else {
         chunk_flag = "🟦";
     }
-    std::cout << "string " << std::setw(3) << string_index << ": " << chunk_flag;
-    for (size_t j = 0; j < chunk.prefix_lengths[string_index - chunk.start_index]; j++) {
+    const size_t prefix_length = chunk.prefix_lengths[string_index - chunk.start_index];
+    const size_t suffix_length = suffixLenIn[suffixLenIn.size() - 1];
+
+    std::cout << "string " << std::setw(3) << string_index << ": " << "prefix_length: "<< std::setw(2) << prefix_length <<  " suffix_length: "<< std::setw(2)<<suffix_length << " " << chunk_flag;
+
+
+
+    for (size_t j = 0; j < prefix_length; j++) {
         std::cout << static_cast<int>(strIn[chunk.start_index][j]) << " ";
     }
 
     std::cout << "✳️"; // ✳️ = split point
-    for (size_t j = 0; j < suffixLenIn[suffixLenIn.size() - 1]; j++) {
-        std::cout << static_cast<int>(suffixStrIn[suffixStrIn.size() - 1][j]) << " ";
+
+    for (size_t j = 0; j <suffix_length; j++) {
+        std::cout << static_cast<int>(suffixStrIn[suffixLenIn.size() - 1][j]) << " ";
     }
     std::cout << "\n";
 }

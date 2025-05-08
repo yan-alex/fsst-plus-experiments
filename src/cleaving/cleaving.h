@@ -180,7 +180,7 @@ inline std::vector<EnhancedSimilarityChunk> FormEnhancedSimilarityChunks(
         EnhancedSimilarityChunk chunk;
         chunk.start_index = start_index + start_idx;
         chunk.prefix_lengths = prefix_lengths;
-        chunk.prefix_index = prefix_index;
+        chunk.prefix_index =  prefix_index;
         chunks.push_back(chunk);
         idx = start_idx;
     }
@@ -209,7 +209,7 @@ inline CleavedResult Cleave(const std::vector<size_t> &lenIn,
         // Prefix
         size_t prefix_length = chunk.prefix_lengths[chunk.prefix_index];
         pl->push_back(prefix_length);
-        ps->push_back(strIn[chunk.prefix_index]);
+        ps->push_back(strIn[chunk.start_index + chunk.prefix_index]);
 
         for (size_t j = chunk.start_index; j < stop_index; j++) {
             if (j - chunk.start_index >= chunk.prefix_lengths.size()) {
