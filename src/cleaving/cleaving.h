@@ -88,36 +88,29 @@ inline std::vector<EnhancedSimilarityChunk> FormEnhancedSimilarityChunks(
     const size_t size) {
     if (size == 0) return {}; // No strings to process
 
-    std::vector<size_t> lcp(size - 1); // LCP between consecutive strings
-    std::vector<std::vector<size_t> > min_lcp(size, std::vector<size_t>(size));
-
-    // Precompute LCPs up to config::max_prefix_size characters
-    for (size_t i = 0; i < size - 1; ++i) {
-        const size_t max_lcp = std::min(std::min(lenIn[start_index + i], lenIn[start_index + i + 1]), config::max_prefix_size);
-        size_t l = 0;
-        const unsigned char *s1 = strIn[start_index + i];
-        const unsigned char *s2 = strIn[start_index + i + 1];
-        while (l < max_lcp && s1[l] == s2[l]) {
-            ++l;
-        }
-        // Prevents splitting the escape code 255 from its escaped byte.
-        if (l!=0 && static_cast<int>(s1[l-1]) == 255) {
-            --l;
-        }
-        lcp[i] = l;
-    }
-    // Precompute min_lcp[i][j]
-    for (size_t i = 0; i < size; ++i) {
-        min_lcp[i][i] = std::min(lenIn[start_index + i], config::max_prefix_size);
-        for (size_t j = i + 1; j < size; ++j) {
-            min_lcp[i][j] = std::min(min_lcp[i][j - 1], lcp[j - 1]);
-        }
-    }
-
     // Precompute prefix sums of string lengths (cumulatively adding the length of each element)
     std::vector<size_t> length_prefix_sum(size + 1, 0);
     for (size_t i = 0; i < size; ++i) {
         length_prefix_sum[i + 1] = length_prefix_sum[i] + lenIn[start_index + i];
+    }
+
+    // Precompute all pairwise prefix matches
+    // prefix_match_matrix[i][j] = longest common prefix between string at position (start_index + i) and (start_index + j)
+    std::vector<std::vector<size_t>> prefix_match_matrix(size, std::vector<size_t>(size, 0));
+    for (size_t i = 0; i < size; ++i) {
+        prefix_match_matrix[i][i] = lenIn[start_index + i]; // Match with self is the full length
+        for (size_t j = i + 1; j < size; ++j) {
+            size_t match_length = CalculatePrefixMatch(
+                strIn[start_index + i], 
+                strIn[start_index + j], 
+                std::min(
+                    std::min(lenIn[start_index + i], lenIn[start_index + j]), 
+                    config::max_prefix_size
+                )
+            );
+            prefix_match_matrix[i][j] = match_length;
+            prefix_match_matrix[j][i] = match_length; // Matrix is symmetric
+        }
     }
 
     constexpr size_t INF = std::numeric_limits<size_t>::max();
@@ -131,11 +124,18 @@ inline std::vector<EnhancedSimilarityChunk> FormEnhancedSimilarityChunks(
     // Dynamic programming to find the optimal partitioning
     for (size_t i = 1; i <= size; ++i) {
         for (size_t j = 0; j < i; ++j) {
-            const size_t min_common_prefix = min_lcp[j][i - 1]; // can be max 128 a.k.a. config::max_prefix_size
             for (int prefix_index_in_chunk = 0; prefix_index_in_chunk < i-j; ++prefix_index_in_chunk) {
                 // printf("Dynamic Programming i:%lu j:%lu prefix_index_in_chunk:%d \n", i, j, prefix_index_in_chunk);
                 const size_t n = i - j;
-                const std::vector<size_t>prefix_lengths = CalcLengthsForChunk(prefix_index_in_chunk, strIn, lenIn, j + start_index, n);
+                
+                // Fast calculation of prefix lengths using precomputed matrix
+                std::vector<size_t> prefix_lengths(n);
+                for (size_t k = 0; k < n; ++k) {
+                    // Get the precomputed match between string at position k in this chunk
+                    // and the selected prefix string at position prefix_index_in_chunk
+                    prefix_lengths[k] = prefix_match_matrix[j + k][j + prefix_index_in_chunk];
+                }
+                
                 size_t overhead = 0;
                 size_t compression_gain = 0;
                 for (const size_t prefix_length : prefix_lengths) {
@@ -150,10 +150,8 @@ inline std::vector<EnhancedSimilarityChunk> FormEnhancedSimilarityChunks(
                 compression_gain-=prefix_lengths[prefix_index_in_chunk]; // the prefix itself is not counted as gain
 
                 const size_t sum_len = length_prefix_sum[i] - length_prefix_sum[j];
-                // const size_t total_cost = dp[j] + overhead + sum_len - (n - 1) * p; // (n - 1) * p is the compression gain. n are strings in current range, p is the common prefix length in this range
 
                 const size_t total_cost = dp[j] + overhead + sum_len - compression_gain;
-
 
                 if (total_cost < dp[i]) {
                     dp[i] = total_cost;
@@ -161,11 +159,6 @@ inline std::vector<EnhancedSimilarityChunk> FormEnhancedSimilarityChunks(
                     prefix_lengths_for_i[i] = prefix_lengths;
                     prefix_index_in_chunk_for_i[i] = prefix_index_in_chunk;
                 }
-                // if (p < min_common_prefix and p + 8 > min_common_prefix) {
-                //     p = min_common_prefix;
-                // }else {
-                //     p += 8;
-                // }
             }
         }
     }
