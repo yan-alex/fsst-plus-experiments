@@ -20,11 +20,11 @@
 #include <condition_variable>
 
 namespace config {
-    constexpr size_t total_strings = 100; // # of input strings
-    constexpr bool print_sorted_corpus = true;
-    constexpr bool print_split_points = true; // prints compressed corpus displaying split points
-    constexpr bool print_similarity_chunks = true;
-    constexpr bool print_decompressed_corpus = true;
+    constexpr size_t total_strings = 1000; // # of input strings
+    constexpr bool print_sorted_corpus = false;
+    constexpr bool print_split_points = false; // prints compressed corpus displaying split points
+    constexpr bool print_similarity_chunks = false;
+    constexpr bool print_decompressed_corpus = false;
 }
 
 
@@ -66,7 +66,7 @@ std::vector<EnhancedSimilarityChunk> FormBlockwiseSimilarityChunks(const size_t 
     for (size_t i = 0; i < n; i += block_granularity) {
         const size_t cleaving_run_n = std::min(input_compressed.encoded_string_lengths.size() - i, block_granularity);
 
-        // std::cout << "Current Cleaving Run coverage: " << i << ":" << i + cleaving_run_n - 1 << std::endl;
+        std::cout << "Current Cleaving Run coverage: " << i << ":" << i + cleaving_run_n - 1 << std::endl;
 
         Sort(input_compressed.encoded_string_lengths, input_compressed.encoded_string_ptrs, i, cleaving_run_n, input);
 
@@ -136,7 +136,7 @@ FSSTPlusCompressionResult FSSTPlusCompress(const size_t n, const std::vector<Enh
 
         // std::cout << "wm.prefix_area_size: " << sizing_result.wms[i].prefix_area_size << "\n";
 
-        // std::cout << "\n🧱 Block " << std::setw(3) << i << " start: " << static_cast<void*>(next_block_start_ptr) << '\n';
+        std::cout << "\n🧱 Block " << std::setw(3) << i << " start: " << static_cast<void*>(next_block_start_ptr) << '\n';
         next_block_start_ptr = WriteBlock(next_block_start_ptr, cleaved_result, sizing_result.wms[i]);
     }
 
@@ -301,15 +301,14 @@ void RunFSSTPlus(Connection &con, const size_t &block_granularity, Metadata &met
     // }
 
 
-    // const FSSTPlusCompressionResult compression_result{};
-    const FSSTPlusCompressionResult compression_result = FSSTPlusCompress(n, similarity_chunks, cleaved_result, block_granularity, encoder); // TODO:UNCOMMENT
+    const FSSTPlusCompressionResult compression_result = FSSTPlusCompress(n, similarity_chunks, cleaved_result, block_granularity, encoder);
 
     // End timing
     auto end_time = std::chrono::high_resolution_clock::now();
     fsst_decoder_t decoder = fsst_decoder(encoder);
 
     // decompress to check all went well
-    DecompressAll(compression_result.data_start, decoder, input.lengths, input.string_ptrs, metadata);
+    // DecompressAll(compression_result.data_start, decoder, input.lengths, input.string_ptrs, metadata); //TODO: UNCOMMENT
 
 
     metadata.run_time_ms = std::chrono::duration<double, std::milli>(end_time - start_time).count();

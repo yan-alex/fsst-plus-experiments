@@ -90,7 +90,7 @@ inline size_t CalculateBlockSizeAndPopulateWritingMetadata(const std::vector<Enh
         // Update suffix metadata
         wm.suffix_offsets_from_first_suffix[wm.number_of_suffixes] = wm.suffix_area_size;
         EnhancedSimilarityChunk chunk = similarity_chunks[prefix_index];
-        wm.suffix_encoded_prefix_lengths[wm.number_of_suffixes] = chunk.prefix_lengths[wm.number_of_suffixes - chunk.start_index];
+        wm.suffix_encoded_prefix_lengths[wm.number_of_suffixes] = chunk.prefix_lengths[wm.number_of_suffixes - chunk.start_index + suffix_area_start_index];
         wm.suffix_prefix_index[wm.number_of_suffixes] = wm.number_of_prefixes - 1; // -1 because we increased it earlier
         wm.suffix_area_size += suffix_size;
         wm.number_of_suffixes += 1;

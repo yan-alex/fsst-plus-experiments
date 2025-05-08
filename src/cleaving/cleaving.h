@@ -66,6 +66,9 @@ inline std::vector<size_t> CalcLengthsForChunk(size_t prefix_index_in_chunk, con
     const std::vector<size_t> &lenIn,
     const size_t start_index,
     const size_t size) {
+    if (size == 1) {
+        return std::vector<size_t>{0};
+    }
 
     unsigned char * prefixStr = strIn[start_index + prefix_index_in_chunk];
     size_t prefixLen = lenIn[start_index + prefix_index_in_chunk];
@@ -132,8 +135,7 @@ inline std::vector<EnhancedSimilarityChunk> FormEnhancedSimilarityChunks(
             for (int prefix_index_in_chunk = 0; prefix_index_in_chunk < i-j; ++prefix_index_in_chunk) {
                 // printf("Dynamic Programming i:%lu j:%lu prefix_index_in_chunk:%d \n", i, j, prefix_index_in_chunk);
                 const size_t n = i - j;
-
-                const std::vector<size_t>prefix_lengths = CalcLengthsForChunk(prefix_index_in_chunk, strIn, lenIn, j, n);
+                const std::vector<size_t>prefix_lengths = CalcLengthsForChunk(prefix_index_in_chunk, strIn, lenIn, j + start_index, n);
                 size_t overhead = 0;
                 size_t compression_gain = 0;
                 for (const size_t prefix_length : prefix_lengths) {
@@ -176,7 +178,7 @@ inline std::vector<EnhancedSimilarityChunk> FormEnhancedSimilarityChunks(
         const std::vector<size_t> prefix_lengths = prefix_lengths_for_i[idx];
         const size_t prefix_index = prefix_index_in_chunk_for_i[idx];
         EnhancedSimilarityChunk chunk;
-        chunk.start_index = start_idx;
+        chunk.start_index = start_index + start_idx;
         chunk.prefix_lengths = prefix_lengths;
         chunk.prefix_index = prefix_index;
         chunks.push_back(chunk);
@@ -210,6 +212,9 @@ inline CleavedResult Cleave(const std::vector<size_t> &lenIn,
         ps->push_back(strIn[chunk.prefix_index]);
 
         for (size_t j = chunk.start_index; j < stop_index; j++) {
+            if (j - chunk.start_index >= chunk.prefix_lengths.size()) {
+                throw std::logic_error("prefix_lengths index out of bounds.");
+            }
             // Suffix
             sl->push_back(lenIn[j] - chunk.prefix_lengths[j - chunk.start_index]);
             ss->push_back(strIn[j] + chunk.prefix_lengths[j - chunk.start_index]);
