@@ -157,6 +157,8 @@ inline CleavedResult Cleave(const std::vector<size_t> &lenIn,
     std::vector<size_t> *sl = &cleaved_result.suffixes.lengths;
     std::vector<const unsigned char *> *ss = &cleaved_result.suffixes.string_ptrs;
 
+    std::vector<float> splitpoint_coverages;
+
     for (size_t i = 0; i < similarity_chunks.size(); i++) {
         const SimilarityChunk &chunk = similarity_chunks[i];
         const size_t stop_index = i == similarity_chunks.size() - 1
@@ -166,15 +168,27 @@ inline CleavedResult Cleave(const std::vector<size_t> &lenIn,
         // Prefix
         pl->push_back(chunk.prefix_length);
         ps->push_back(strIn[chunk.start_index]);
-
         for (size_t j = chunk.start_index; j < stop_index; j++) {
             // Suffix
             sl->push_back(lenIn[j] - chunk.prefix_length);
             ss->push_back(strIn[j] + chunk.prefix_length);
             if (config::print_split_points) {
                 PrintStringWithSplitPoints(strIn, *sl, *ss, chunk, j);
+                if (lenIn[j] > 0) {
+                    splitpoint_coverages.push_back(chunk.prefix_length/static_cast<float>(lenIn[j]));
+                }
             }
         }
+    }
+
+    if (config::print_split_points) {
+        // get mean of splitpoint_coverages with cpp 11
+        float sum = 0.0f;
+        for (const auto& coverage : splitpoint_coverages) {
+            sum += coverage;
+        }
+        float mean = splitpoint_coverages.empty() ? 0.0f : sum / splitpoint_coverages.size();
+        std::cout << "> 👨‍💻 Mean splitpoint coverage for " << n << " strings: " << mean << std::endl;
     }
 
     return cleaved_result;

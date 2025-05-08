@@ -84,8 +84,8 @@ inline void RunDictionaryCompression(duckdb::Connection &con, const string &colu
     auto chunk = result->Fetch();
     auto &vector = chunk->data[4];
     const uint32_t *total_compressed_size = FlatVector::GetData<uint32_t>(vector);
-    std::cout<<"Dictionary compressed size" << std::to_string(static_cast<double>(*total_compressed_size))<< std::endl;
     double compression_factor = static_cast<double>(total_string_size) / static_cast<double>(*total_compressed_size);
+    PrintCompressionStats(n, total_string_size, *total_compressed_size);
 
     // Store results in the database
     std::string insert_query = "INSERT INTO results VALUES ('" +
@@ -101,7 +101,7 @@ inline void RunDictionaryCompression(duckdb::Connection &con, const string &colu
 
     try {
         con.Query(insert_query);
-        std::cout << "Inserted result for " << metadata.dataset << "." << column_name << std::endl;
+        std::cout << "Inserted result for DICTIONARY " << metadata.dataset << "." << column_name << std::endl;
     } catch (std::exception& e) {
         std::cerr << "🚨 Failed to insert result: " << e.what() << std::endl;
     }

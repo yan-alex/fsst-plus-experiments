@@ -20,7 +20,7 @@
 #include <condition_variable>
 
 namespace config {
-    constexpr size_t total_strings = 100000; // # of input strings
+    constexpr size_t total_strings = 500000; // # of input strings
     constexpr bool print_sorted_corpus = false;
     constexpr bool print_split_points = false; // prints compressed corpus displaying split points
     constexpr bool print_similarity_chunks = false;
@@ -369,8 +369,8 @@ bool process_dataset(Connection &con, const size_t &block_granularity, const str
     vector<string> column_names;
 
     try {
-        column_names = GetColumnNames(columns_result); //TODO: Uncomment
-        // column_names = {"URL"};
+        // column_names = GetColumnNames(columns_result); //TODO: Uncomment
+        column_names = {"URL"};
         // column_names = {"Referer"};
         // column_names = {"Title"};
     } catch (std::exception& e) {
@@ -399,7 +399,8 @@ bool process_dataset(Connection &con, const size_t &block_granularity, const str
             // Query to get column data
             const string query =
                     "SELECT \"" + column_name + "\" FROM read_parquet('" + dataset_path + "')"
-                    "LIMIT " + std::to_string(config::total_strings) + ";";
+                    "LIMIT " + std::to_string(config::total_strings) 
+                    + ";";
 
             const auto result = con.Query(query);
             metadata.amount_of_rows = result->RowCount();
@@ -410,9 +411,10 @@ bool process_dataset(Connection &con, const size_t &block_granularity, const str
                 continue;
             }
 
-            const size_t n = std::min(config::amount_strings_per_symbol_table, static_cast<size_t>(result->RowCount()));
+            // const size_t n = std::min(config::amount_strings_per_symbol_table, static_cast<size_t>(result->RowCount()));
+            const size_t n =  static_cast<size_t>(result->RowCount());
 
-            StringCollection input = RetrieveData(result, data_chunk, n); // 100k rows
+            StringCollection input = RetrieveData(result, data_chunk, n); 
 
             size_t total_string_size = {0};
             for (const size_t string_length: input.lengths) {
@@ -582,15 +584,15 @@ int main() {
     // Create a thread-safe queue for distributing work
     ThreadSafeQueue dataset_queue;
     
-    for (const auto& dataset_path : datasets) { //TODO: Uncomment
-        dataset_queue.push(dataset_path);
-    }
+    // for (const auto& dataset_path : datasets) { //TODO: Uncomment
+    //     dataset_queue.push(dataset_path);
+    // }
 
     // dataset_queue.push(env::project_dir + "/benchmarking/data/refined/NextiaJD/freecodecamp_casual_chatroom.parquet");
     // dataset_queue.push(env::project_dir + "/benchmarking/data/refined/NextiaJD/glassdoor.parquet");
     // dataset_queue.push(env::project_dir + "/benchmarking/data/refined/NextiaJD/glassdoor_photos.parquet");
     // dataset_queue.push(env::project_dir + "/benchmarking/data/refined/NextiaJD/github_issues.parquet");
-    // dataset_queue.push(env::project_dir + "/benchmarking/data/refined/clickbench.parquet");
+    dataset_queue.push(env::project_dir + "/benchmarking/data/refined/clickbench.parquet");
 
 
     // Create worker threads

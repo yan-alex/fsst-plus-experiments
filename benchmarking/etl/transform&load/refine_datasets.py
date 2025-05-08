@@ -41,7 +41,7 @@ def refine_dataset(input_path: PurePath, output_path: PurePath):
         types = relation.types # DuckDB data types
         col_types_map = dict(zip(columns, types))
         
-        relation.limit(100000)
+        relation.limit(100000) #TODO: THIS DOES NOT REASSIGN THE RELATION OBJECT, SHOULD BE relation = relation.limit(100000)
         
         # Get total row count once
         count_result = relation.aggregate('count(*)').fetchone()
@@ -99,7 +99,6 @@ def refine_dataset(input_path: PurePath, output_path: PurePath):
             #         END) as formatted  -- Human-readable format of total compressed size
             # FROM dictionary_sizer_table
             # """
-            
             dict_query = 'SELECT length(string_agg(DISTINCT "' + col + '", \'\')) AS dict_size, COUNT(DISTINCT "' + col + '") AS dist, CASE WHEN COUNT(DISTINCT "' + col + '") = 0 THEN 0 ELSE ceil(log2(COUNT(DISTINCT "' + col + '")) / 8) END AS size_of_code, COUNT("' + col + '") * CASE WHEN COUNT(DISTINCT "' + col + '") = 0 THEN 0 ELSE ceil(log2(COUNT(DISTINCT "' + col + '")) / 8) END AS codes_size, CAST(length(string_agg(DISTINCT "' + col + '", \'\')) + COUNT("' + col + '") * CASE WHEN COUNT(DISTINCT "' + col + '") = 0 THEN 0 ELSE ceil(log2(COUNT(DISTINCT "' + col + '")) / 8) END AS INT) AS total_compressed_size, format_bytes(total_compressed_size) AS formatted, length(string_agg("' + col + '", \'\')) AS raw_size FROM (SELECT * FROM relation LIMIT ' + str(100000) + ')'
             # print(f"Running query '{dict_query}'")
             dict_result = con.execute(dict_query).fetchall()[0]
