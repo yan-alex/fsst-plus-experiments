@@ -7,6 +7,7 @@
 #include "../config.h" // Not needed but prevents ClionIDE from complaining
 #include <algorithm>
 #include <limits>
+#include <unordered_set>
 
 inline void Sort(std::vector<size_t> &lenIn, std::vector<unsigned char *> &strIn,
                            const size_t start_index, const size_t cleaving_run_n, StringCollection &input) {
@@ -80,7 +81,27 @@ inline std::vector<size_t> CalcLengthsForChunk(size_t prefix_index_in_chunk, con
 
     return prefix_lengths;
 }
+int reverse_memcmp(const void *s1, const void *s2, size_t n) {
+    if(n == 0)
+        return 0;
 
+    // Grab pointers to the end and walk backwards
+    const unsigned char *p1 = (const unsigned char*)s1 + n - 1;
+    const unsigned char *p2 = (const unsigned char*)s2 + n - 1;
+
+    while(n > 0)
+    {
+        // If the current characters differ, return an appropriately signed
+        // value; otherwise, keep searching backwards
+        if(*p1 != *p2)
+            return *p1 - *p2;
+        p1--;
+        p2--;
+        n--;
+    }
+
+    return 0;
+}
 inline std::vector<EnhancedSimilarityChunk> FormEnhancedSimilarityChunks(
     const std::vector<size_t> &lenIn,
     const std::vector<unsigned char *> &strIn,
@@ -125,6 +146,23 @@ inline std::vector<EnhancedSimilarityChunk> FormEnhancedSimilarityChunks(
     for (size_t i = 1; i <= size; ++i) {
         for (size_t j = 0; j < i; ++j) {
             for (int prefix_index_in_chunk = 0; prefix_index_in_chunk < i-j; ++prefix_index_in_chunk) {
+                if (prefix_index_in_chunk > 0) {
+                    // Check if this prefix string is identical to any we've already processed
+                    unsigned char* current_prefix = strIn[j + start_index + prefix_index_in_chunk];
+                    size_t current_prefix_len = lenIn[j + start_index + prefix_index_in_chunk];
+                    // Compare against all previously processed prefixes
+                    unsigned char* prev_prefix = strIn[j + start_index + prefix_index_in_chunk-1];
+                    size_t prev_prefix_len = lenIn[j + start_index + prefix_index_in_chunk-1];
+                    
+                    // Skip if lengths are different
+                    if (current_prefix_len != prev_prefix_len) continue;
+                    
+                    // Compare actual string content
+                    const size_t len_to_compare = std::min(current_prefix_len, config::max_prefix_size);
+                    if (reverse_memcmp(current_prefix, prev_prefix, len_to_compare) == 0) {
+                        continue;
+                    }
+                }
                 // printf("Dynamic Programming i:%lu j:%lu prefix_index_in_chunk:%d \n", i, j, prefix_index_in_chunk);
                 const size_t n = i - j;
                 
