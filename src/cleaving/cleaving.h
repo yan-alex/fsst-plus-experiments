@@ -57,30 +57,17 @@ inline size_t CalculatePrefixMatch(const unsigned char * str1, const unsigned ch
         if (str1[i] == str2[i]) {
             l++;
         } else {
-            return l;
+            break;
         }
+    }
+    // Prevents splitting the escape code 255 from its escaped byte.
+    if (l!=0 && static_cast<int>(str1[l-1]) == 255) {
+        --l;
     }
     return l;
 };
 
-inline std::vector<size_t> CalcLengthsForChunk(size_t prefix_index_in_chunk, const std::vector<unsigned char *> &strIn,
-    const std::vector<size_t> &lenIn,
-    const size_t start_index,
-    const size_t size) {
-    if (size == 1) {
-        return std::vector<size_t>{0};
-    }
 
-    unsigned char * prefixStr = strIn[start_index + prefix_index_in_chunk];
-    size_t prefixLen = lenIn[start_index + prefix_index_in_chunk];
-
-    std::vector<size_t> prefix_lengths;
-    for (int i = start_index; i < start_index+size; ++i) {
-        prefix_lengths.push_back(CalculatePrefixMatch(strIn[i], prefixStr, std::min(std::min(prefixLen, lenIn[i]), config::max_prefix_size)));
-    }
-
-    return prefix_lengths;
-}
 int reverse_memcmp(const void *s1, const void *s2, size_t n) {
     if(n == 0)
         return 0;
@@ -89,12 +76,30 @@ int reverse_memcmp(const void *s1, const void *s2, size_t n) {
     const unsigned char *p1 = (const unsigned char*)s1 + n - 1;
     const unsigned char *p2 = (const unsigned char*)s2 + n - 1;
 
-    while(n > 0)
-    {
-        // If the current characters differ, return an appropriately signed
-        // value; otherwise, keep searching backwards
+    // Process 8 bytes at a time
+    while(n >= 8) {
+        // Compare 8 bytes at a time safely (without alignment issues)
+        uint64_t v1 = 0, v2 = 0;
+        for(int i = 0; i < 8; i++) {
+            v1 = (v1 << 8) | p1[-i];
+            v2 = (v2 << 8) | p2[-i];
+        }
+        
+        // If values differ, return 1 (not equal) immediately
+        if(v1 != v2) {
+            return 1;
+        }
+        
+        // All 8 bytes match, skip them
+        p1 -= 8;
+        p2 -= 8;
+        n -= 8;
+    }
+
+    // Handle remaining bytes
+    while(n > 0) {
         if(*p1 != *p2)
-            return *p1 - *p2;
+            return 1;
         p1--;
         p2--;
         n--;
@@ -119,7 +124,12 @@ inline std::vector<EnhancedSimilarityChunk> FormEnhancedSimilarityChunks(
     // prefix_match_matrix[i][j] = longest common prefix between string at position (start_index + i) and (start_index + j)
     std::vector<std::vector<size_t>> prefix_match_matrix(size, std::vector<size_t>(size, 0));
     for (size_t i = 0; i < size; ++i) {
-        prefix_match_matrix[i][i] = lenIn[start_index + i]; // Match with self is the full length
+        prefix_match_matrix[i][i] = std::min(lenIn[start_index + i], config::max_prefix_size); // Match with self is the full length
+        // Prevents splitting the escape code 255 from its escaped byte.
+        if (prefix_match_matrix[i][i] != 0 && static_cast<int>(strIn[start_index + i][prefix_match_matrix[i][i] - 1]) == 255) {
+            prefix_match_matrix[i][i]--;
+        }
+
         for (size_t j = i + 1; j < size; ++j) {
             size_t match_length = CalculatePrefixMatch(
                 strIn[start_index + i], 
@@ -159,21 +169,27 @@ inline std::vector<EnhancedSimilarityChunk> FormEnhancedSimilarityChunks(
                     
                     // Compare actual string content
                     const size_t len_to_compare = std::min(current_prefix_len, config::max_prefix_size);
+
+                    // ✂️ PRUNING ✂️
                     if (reverse_memcmp(current_prefix, prev_prefix, len_to_compare) == 0) {
                         continue;
                     }
                 }
                 // printf("Dynamic Programming i:%lu j:%lu prefix_index_in_chunk:%d \n", i, j, prefix_index_in_chunk);
-                const size_t n = i - j;
-                
+                const size_t curr_chunk_range = i - j;
+
                 // Fast calculation of prefix lengths using precomputed matrix
-                std::vector<size_t> prefix_lengths(n);
-                for (size_t k = 0; k < n; ++k) {
-                    // Get the precomputed match between string at position k in this chunk
-                    // and the selected prefix string at position prefix_index_in_chunk
-                    prefix_lengths[k] = prefix_match_matrix[j + k][j + prefix_index_in_chunk];
+                std::vector<size_t> prefix_lengths(curr_chunk_range);
+                if (curr_chunk_range == 1) {
+                    prefix_lengths[0] = 0;
+                } else {
+                    for (size_t k = 0; k < curr_chunk_range; ++k) {
+                        // Get the precomputed match between string at position k in this chunk
+                        // and the selected prefix string at position prefix_index_in_chunk
+                        prefix_lengths[k] = prefix_match_matrix[j + k][j + prefix_index_in_chunk];
+                    }
                 }
-                
+
                 size_t overhead = 0;
                 size_t compression_gain = 0;
                 for (const size_t prefix_length : prefix_lengths) {
