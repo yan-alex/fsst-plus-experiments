@@ -20,7 +20,7 @@
 #include <condition_variable>
 
 namespace config {
-    constexpr size_t total_strings = 500000; // # of input strings
+    constexpr size_t total_strings = 100000; // # of input strings
     constexpr bool print_sorted_corpus = false;
     constexpr bool print_split_points = false; // prints compressed corpus displaying split points
     constexpr bool print_similarity_chunks = false;

@@ -17,36 +17,89 @@ inline void TruncatedSort(std::vector<size_t> &lenIn, std::vector<unsigned char 
         indices[i - start_index] = i;
     }
 
-    // Sort indices based on truncated string comparison
-    std::sort(indices.begin(), indices.end(), [&](size_t i, size_t j) {
-        // Calculate truncated lengths as largest multiple of 8 <= min(config::max_prefix_size, original length)
-        const size_t len_i = std::min(lenIn[i], config::max_prefix_size) & ~7;
-        const size_t len_j = std::min(lenIn[j], config::max_prefix_size) & ~7;
-
-        // Compare truncated strings
-        const int cmp = memcmp(strIn[i], strIn[j], std::min(len_i, len_j));
-        return cmp < 0 || (cmp == 0 && len_i < len_j);
-    });
-
-
-    // Reorder both vectors based on sorted indices
+    // Maximum number of passes needed (1 pass per byte position)
+    const size_t max_passes = config::max_prefix_size;
+    // Buckets for radix sort (256 possible values for each byte)
+    std::vector<std::vector<size_t>> buckets(256);
+    // Temporary vector to hold indices during sorting
+    std::vector<size_t> temp_indices(cleaving_run_n);
+    
+    // Start with all indices in one bucket for the initial pass
+    std::vector<size_t> current_indices = indices;
+    
+    // Sort by byte position, starting from the most significant byte (MSB)
+    // Process the string in chunks of 8 bytes for better efficiency
+    for (size_t byte_pos = 0; byte_pos < max_passes; byte_pos += 8) {
+        // For each chunk of 8 bytes
+        for (size_t chunk_offset = 0; chunk_offset < 8 && byte_pos + chunk_offset < max_passes; ++chunk_offset) {
+            size_t current_byte_pos = byte_pos + chunk_offset;
+            
+            // Clear buckets for this pass
+            for (auto& bucket : buckets) {
+                bucket.clear();
+            }
+            
+            // Distribute indices into buckets based on the byte at current_byte_pos
+            for (size_t idx : current_indices) {
+                // Only consider this position if the string is long enough
+                size_t truncated_len = std::min(lenIn[idx], config::max_prefix_size) & ~7;
+                
+                if (current_byte_pos < truncated_len) {
+                    // Get the byte value at this position
+                    unsigned char byte_val = strIn[idx][current_byte_pos];
+                    buckets[byte_val].push_back(idx);
+                } else {
+                    // If string is too short for this position, put it in bucket 0
+                    // This ensures shorter strings come before longer ones with the same prefix
+                    buckets[0].push_back(idx);
+                }
+            }
+            
+            // Collect indices from buckets back into current_indices
+            size_t pos = 0;
+            for (size_t i = 0; i < 256; ++i) {
+                for (size_t idx : buckets[i]) {
+                    temp_indices[pos++] = idx;
+                }
+            }
+            
+            // Update current_indices for the next pass
+            current_indices = temp_indices;
+            
+            // Check if we've already completely sorted the array
+            // If each bucket has at most one element, we're done
+            bool fully_sorted = true;
+            for (const auto& bucket : buckets) {
+                if (bucket.size() > 1) {
+                    fully_sorted = false;
+                    break;
+                }
+            }
+            
+            if (fully_sorted) {
+                break;
+            }
+        }
+    }
+    
+    // Reorder using the sorted indices
     const std::vector<size_t> tmp_len(lenIn);
     const std::vector<unsigned char *> tmp_str(strIn);
-
+    
     // Create temporary copies of the original input vectors
     const std::vector<size_t> tmp_input_lengths(input.lengths);
     const std::vector<const unsigned char *> tmp_input_string_ptrs(input.string_ptrs);
-
+    
     for (size_t k = 0; k < cleaving_run_n; ++k) {
-        lenIn[start_index + k] = tmp_len[indices[k]];
-        strIn[start_index + k] = tmp_str[indices[k]];
-
+        lenIn[start_index + k] = tmp_len[current_indices[k]];
+        strIn[start_index + k] = tmp_str[current_indices[k]];
+        
         // ALSO REORDER THE ORIGINAL UNCOMPRESSED INPUT
         // we do this to be able to pairwise compare later on when we verify decompression, to see if it matches with the original
-        input.lengths[start_index + k] = tmp_input_lengths[indices[k]];
-        input.string_ptrs[start_index + k] = tmp_input_string_ptrs[indices[k]];
+        input.lengths[start_index + k] = tmp_input_lengths[current_indices[k]];
+        input.string_ptrs[start_index + k] = tmp_input_string_ptrs[current_indices[k]];
     }
-
+    
     // Print strings
     if (config::print_sorted_corpus) {
         std::cout << "Sorted strings: \n";
