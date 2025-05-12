@@ -17,69 +17,58 @@ inline void TruncatedSort(std::vector<size_t> &lenIn, std::vector<unsigned char 
         indices[i - start_index] = i;
     }
 
-    // Maximum number of passes needed (1 pass per byte position)
-    const size_t max_passes = config::max_prefix_size;
+    // For each string, calculate its truncated length once
+    std::vector<size_t> truncated_lengths(cleaving_run_n);
+    for (size_t i = 0; i < cleaving_run_n; ++i) {
+        size_t idx = start_index + i;
+        truncated_lengths[i] = std::min(lenIn[idx], config::max_prefix_size);
+    }
+
+    // Find the maximum truncated length to determine how many passes we need
+    size_t max_truncated_len = 0;
+    for (size_t len : truncated_lengths) {
+        max_truncated_len = std::max(max_truncated_len, len);
+    }
+
     // Buckets for radix sort (256 possible values for each byte)
     std::vector<std::vector<size_t>> buckets(256);
-    // Temporary vector to hold indices during sorting
-    std::vector<size_t> temp_indices(cleaving_run_n);
-    
-    // Start with all indices in one bucket for the initial pass
+    // Use current_indices to track the current ordering
     std::vector<size_t> current_indices = indices;
-    
-    // Sort by byte position, starting from the most significant byte (MSB)
-    // Process the string in chunks of 8 bytes for better efficiency
-    for (size_t byte_pos = 0; byte_pos < max_passes; byte_pos += 8) {
-        // For each chunk of 8 bytes
-        for (size_t chunk_offset = 0; chunk_offset < 8 && byte_pos + chunk_offset < max_passes; ++chunk_offset) {
-            size_t current_byte_pos = byte_pos + chunk_offset;
+    std::vector<size_t> next_indices(cleaving_run_n);
+
+    // Start from the least significant byte within the truncated region and work backwards
+    // This is an LSD (Least Significant Digit) radix sort which is stable
+    for (int byte_pos = max_truncated_len - 1; byte_pos >= 0; --byte_pos) {
+        // Clear all buckets
+        for (auto& bucket : buckets) {
+            bucket.clear();
+        }
+        
+        // Distribute indices into buckets based on the byte at byte_pos
+        for (size_t i = 0; i < cleaving_run_n; ++i) {
+            size_t idx = current_indices[i];
+            size_t rel_idx = idx - start_index;
             
-            // Clear buckets for this pass
-            for (auto& bucket : buckets) {
-                bucket.clear();
-            }
-            
-            // Distribute indices into buckets based on the byte at current_byte_pos
-            for (size_t idx : current_indices) {
-                // Only consider this position if the string is long enough
-                size_t truncated_len = std::min(lenIn[idx], config::max_prefix_size) & ~7;
-                
-                if (current_byte_pos < truncated_len) {
-                    // Get the byte value at this position
-                    unsigned char byte_val = strIn[idx][current_byte_pos];
-                    buckets[byte_val].push_back(idx);
-                } else {
-                    // If string is too short for this position, put it in bucket 0
-                    // This ensures shorter strings come before longer ones with the same prefix
-                    buckets[0].push_back(idx);
-                }
-            }
-            
-            // Collect indices from buckets back into current_indices
-            size_t pos = 0;
-            for (size_t i = 0; i < 256; ++i) {
-                for (size_t idx : buckets[i]) {
-                    temp_indices[pos++] = idx;
-                }
-            }
-            
-            // Update current_indices for the next pass
-            current_indices = temp_indices;
-            
-            // Check if we've already completely sorted the array
-            // If each bucket has at most one element, we're done
-            bool fully_sorted = true;
-            for (const auto& bucket : buckets) {
-                if (bucket.size() > 1) {
-                    fully_sorted = false;
-                    break;
-                }
-            }
-            
-            if (fully_sorted) {
-                break;
+            // If this string's truncated length includes this byte position
+            if (byte_pos < truncated_lengths[rel_idx]) {
+                unsigned char byte_val = strIn[idx][byte_pos];
+                buckets[byte_val].push_back(idx);
+            } else {
+                // String is too short for this position, put it in bucket 0
+                buckets[0].push_back(idx);
             }
         }
+        
+        // Collect indices from buckets back into next_indices
+        size_t pos = 0;
+        for (size_t i = 0; i < 256; ++i) {
+            for (size_t idx : buckets[i]) {
+                next_indices[pos++] = idx;
+            }
+        }
+        
+        // Update current_indices for the next pass
+        std::swap(current_indices, next_indices);
     }
     
     // Reorder using the sorted indices
