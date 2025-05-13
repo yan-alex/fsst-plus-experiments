@@ -177,11 +177,11 @@ inline std::vector<EnhancedSimilarityChunk> FormEnhancedSimilarityChunks(
                     size_t prev_prefix_len = lenIn[j + start_index + prefix_index_in_chunk-1];
 
                     // ✂️ PRUNING ✂️ TODO: Remove? This costs a bit of compression ratio, but speeds up a lot.
-                    if (current_prefix_len == prev_prefix_len
-                        and
-                        *(current_prefix + current_prefix_len) == *(prev_prefix + prev_prefix_len)) {
-                        break;
-                    }
+                    // if (current_prefix_len == prev_prefix_len
+                    //     and
+                    //     *(current_prefix + current_prefix_len) == *(prev_prefix + prev_prefix_len)) {
+                    //     break;
+                    // }
                 }
                 
                 // Clear without deallocating memory
