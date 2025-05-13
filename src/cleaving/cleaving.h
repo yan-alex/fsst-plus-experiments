@@ -10,22 +10,22 @@
 
 // Sort all strings based on their starting characters truncated to the largest multiple of 8 bytes (up to config::max_prefix_size bytes)
 inline void TruncatedSort(std::vector<size_t> &lenIn, std::vector<unsigned char *> &strIn,
-                           const size_t start_index, const size_t cleaving_run_n, StringCollection &input) {
+                           const size_t start_index, const size_t &cleaving_run_n, StringCollection &input) {
     // Create index array
-    std::vector<size_t> indices(cleaving_run_n);
-    for (size_t i = start_index; i < start_index + cleaving_run_n; ++i) {
-        indices[i - start_index] = i;
+    size_t indices[cleaving_run_n];
+    for (size_t i = 0; i < cleaving_run_n; ++i) {
+        indices[i] = start_index + i;
     }
 
     // For each string, calculate its truncated length once
-    std::vector<size_t> truncated_lengths(cleaving_run_n);
+    size_t truncated_lengths[cleaving_run_n];
     for (size_t i = 0; i < cleaving_run_n; ++i) {
         const size_t idx = start_index + i;
         truncated_lengths[i] = std::min(lenIn[idx], config::max_prefix_size);
     }
 
     // std::sort uses IntroSort (hybrid of quicksort, heapsort, and insertion sort )
-    std::sort(indices.begin(), indices.end(), [&](const size_t a, const size_t b) {
+    std::sort(indices, indices + cleaving_run_n, [&](size_t a, size_t b) {
         const size_t a_rel = a - start_index;
         const size_t b_rel = b - start_index;
 
