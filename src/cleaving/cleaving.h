@@ -20,66 +20,25 @@ inline void TruncatedSort(std::vector<size_t> &lenIn, std::vector<unsigned char 
     // For each string, calculate its truncated length once
     std::vector<size_t> truncated_lengths(cleaving_run_n);
     for (size_t i = 0; i < cleaving_run_n; ++i) {
-        size_t idx = start_index + i;
+        const size_t idx = start_index + i;
         truncated_lengths[i] = std::min(lenIn[idx], config::max_prefix_size);
     }
 
-    // Find the maximum truncated length to determine how many passes we need
-    size_t max_truncated_len = 0;
-    for (size_t len : truncated_lengths) {
-        max_truncated_len = std::max(max_truncated_len, len);
-    }
+    // std::sort uses IntroSort (hybrid of quicksort, heapsort, and insertion sort )
+    std::sort(indices.begin(), indices.end(), [&](const size_t a, const size_t b) {
+        const size_t a_rel = a - start_index;
+        const size_t b_rel = b - start_index;
 
-    // Buckets for radix sort (256 possible values for each byte)
-    size_t bucket_sizes[256] = {0};
-    size_t* buckets[256];
-    for (int i = 0; i < 256; i++) {
-        buckets[i] = new size_t[cleaving_run_n];
-    }
-    
-    // Use current_indices to track the current ordering
-    std::vector<size_t> current_indices = indices;
-    std::vector<size_t> next_indices(cleaving_run_n);
-
-    // Start from the least significant byte within the truncated region and work backwards
-    // This is an LSD (Least Significant Digit) radix sort which is stable
-    for (int byte_pos = max_truncated_len - 1; byte_pos >= 0; byte_pos--) {
-        // Clear all buckets
-        for (int i = 0; i < 256; i++) {
-            bucket_sizes[i] = 0;
-        }
-        
-        // Distribute indices into buckets based on the byte at byte_pos
-        for (size_t i = 0; i < cleaving_run_n; ++i) {
-            size_t idx = current_indices[i];
-            size_t rel_idx = idx - start_index;
-            
-            // If this string's truncated length includes this byte position
-            if (byte_pos < truncated_lengths[rel_idx]) {
-                unsigned char byte_val = strIn[idx][byte_pos];
-                buckets[byte_val][bucket_sizes[byte_val]++] = idx;
-            } else {
-                // String is too short for this position, put it in bucket 0
-                buckets[0][bucket_sizes[0]++] = idx;
+        const size_t common_len = std::min(truncated_lengths[a_rel], truncated_lengths[b_rel]);
+        for (size_t i = 0; i < common_len; ++i) {
+            if (strIn[a][i] != strIn[b][i]) {
+                return strIn[a][i] < strIn[b][i];
             }
         }
         
-        // Collect indices from buckets back into next_indices
-        size_t pos = 0;
-        for (int i = 0; i < 256; ++i) {
-            for (size_t j = 0; j < bucket_sizes[i]; ++j) {
-                next_indices[pos++] = buckets[i][j];
-            }
-        }
-        
-        // Update current_indices for the next pass
-        std::swap(current_indices, next_indices);
-    }
-    
-    // Free memory
-    for (int i = 0; i < 256; i++) {
-        delete[] buckets[i];
-    }
+        // If all bytes match up to the shorter length, longer string comes first
+        return truncated_lengths[a_rel] > truncated_lengths[b_rel];
+    });
     
     // Reorder using the sorted indices
     const std::vector<size_t> tmp_len(lenIn);
@@ -90,13 +49,13 @@ inline void TruncatedSort(std::vector<size_t> &lenIn, std::vector<unsigned char 
     const std::vector<const unsigned char *> tmp_input_string_ptrs(input.string_ptrs);
     
     for (size_t k = 0; k < cleaving_run_n; ++k) {
-        lenIn[start_index + k] = tmp_len[current_indices[k]];
-        strIn[start_index + k] = tmp_str[current_indices[k]];
+        lenIn[start_index + k] = tmp_len[indices[k]];
+        strIn[start_index + k] = tmp_str[indices[k]];
         
         // ALSO REORDER THE ORIGINAL UNCOMPRESSED INPUT
         // we do this to be able to pairwise compare later on when we verify decompression, to see if it matches with the original
-        input.lengths[start_index + k] = tmp_input_lengths[current_indices[k]];
-        input.string_ptrs[start_index + k] = tmp_input_string_ptrs[current_indices[k]];
+        input.lengths[start_index + k] = tmp_input_lengths[indices[k]];
+        input.string_ptrs[start_index + k] = tmp_input_string_ptrs[indices[k]];
     }
     
     // Print strings
