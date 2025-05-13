@@ -8,6 +8,10 @@
 #include <vector>
 #include <fsst.h>
 
+#include "../global.h"
+
+struct Metadata;
+
 inline void PrintStringsConst(const std::vector<size_t> &lenIn, const std::vector<const unsigned char *> &strIn) {
     // Print strings
     for (size_t i = 0; i < lenIn.size(); ++i) {
@@ -92,12 +96,13 @@ inline void PrintDecoderSymbolTable(const fsst_decoder_t &decoder) {
 inline void PrintCompressionStats(
     const size_t total_strings_amount,
     const size_t total_string_size,
-    const size_t total_compressed_string_size
+    const size_t total_compressed_string_size,
+    const Metadata &metadata
 ) {
     // Print compression stats
     std::cout << "✅ ✅ ✅ Compressed " << total_strings_amount << " strings ✅ ✅ ✅\n";
     std::cout << "Original   size: " << total_string_size << " bytes\n";
     std::cout << "Compressed size: " << total_compressed_string_size << " bytes\n";
-    std::cout << "Compression factor: " << static_cast<double>(total_string_size) / total_compressed_string_size <<
-            "\n";
+    std::cout << "Compression factor: " << static_cast<double>(total_string_size) / total_compressed_string_size << "\n";
+    std::cout << "Runtime: " << metadata.run_time_ms << "\n";
 }

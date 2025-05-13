@@ -324,7 +324,7 @@ void RunFSSTPlus(Connection &con, const size_t &block_granularity, Metadata &met
     compressed_size -= savings;
     metadata.compression_factor = static_cast<double>(total_string_size) / static_cast<double>(compressed_size);
 
-    PrintCompressionStats(n, total_string_size, compressed_size);
+    PrintCompressionStats(n, total_string_size, compressed_size, metadata);
 
     // Add results to table
     string insert_query = "INSERT INTO results VALUES ('" +
@@ -425,9 +425,9 @@ bool process_dataset(Connection &con, const size_t &block_granularity, const str
             // metadata.algo = "dictionary";
             // RunDictionaryCompression(con, column_name, dataset_path, n, total_string_size, metadata);
 
-            // std::cout <<"==========START BASIC FSST COMPRESSION=========\n";
-            // metadata.algo = "basic_fsst";
-            // RunBasicFSST(con, input, total_string_size, metadata);
+            std::cout <<"==========START BASIC FSST COMPRESSION=========\n";
+            metadata.algo = "basic_fsst";
+            RunBasicFSST(con, input, total_string_size, metadata);
 
             std::cout <<"==========START FSST PLUS COMPRESSION==========\n";
             metadata.algo = "fsstplus_onest_compressbefore";

@@ -31,17 +31,22 @@ inline void TruncatedSort(std::vector<size_t> &lenIn, std::vector<unsigned char 
     }
 
     // Buckets for radix sort (256 possible values for each byte)
-    std::vector<std::vector<size_t>> buckets(256);
+    size_t bucket_sizes[256] = {0};
+    size_t* buckets[256];
+    for (int i = 0; i < 256; i++) {
+        buckets[i] = new size_t[cleaving_run_n];
+    }
+    
     // Use current_indices to track the current ordering
     std::vector<size_t> current_indices = indices;
     std::vector<size_t> next_indices(cleaving_run_n);
 
     // Start from the least significant byte within the truncated region and work backwards
     // This is an LSD (Least Significant Digit) radix sort which is stable
-    for (int byte_pos = max_truncated_len - 1; byte_pos >= 0; --byte_pos) {
+    for (int byte_pos = max_truncated_len - 1; byte_pos >= 0; byte_pos--) {
         // Clear all buckets
-        for (auto& bucket : buckets) {
-            bucket.clear();
+        for (int i = 0; i < 256; i++) {
+            bucket_sizes[i] = 0;
         }
         
         // Distribute indices into buckets based on the byte at byte_pos
@@ -52,23 +57,28 @@ inline void TruncatedSort(std::vector<size_t> &lenIn, std::vector<unsigned char 
             // If this string's truncated length includes this byte position
             if (byte_pos < truncated_lengths[rel_idx]) {
                 unsigned char byte_val = strIn[idx][byte_pos];
-                buckets[byte_val].push_back(idx);
+                buckets[byte_val][bucket_sizes[byte_val]++] = idx;
             } else {
                 // String is too short for this position, put it in bucket 0
-                buckets[0].push_back(idx);
+                buckets[0][bucket_sizes[0]++] = idx;
             }
         }
         
         // Collect indices from buckets back into next_indices
         size_t pos = 0;
-        for (size_t i = 0; i < 256; ++i) {
-            for (size_t idx : buckets[i]) {
-                next_indices[pos++] = idx;
+        for (int i = 0; i < 256; ++i) {
+            for (size_t j = 0; j < bucket_sizes[i]; ++j) {
+                next_indices[pos++] = buckets[i][j];
             }
         }
         
         // Update current_indices for the next pass
         std::swap(current_indices, next_indices);
+    }
+    
+    // Free memory
+    for (int i = 0; i < 256; i++) {
+        delete[] buckets[i];
     }
     
     // Reorder using the sorted indices

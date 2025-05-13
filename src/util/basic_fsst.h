@@ -182,12 +182,13 @@ inline FSSTCompressionResult FSSTCompress(StringCollection &input, fsst_encoder_
 
 // Declaration for the function that runs basic FSST compression and prints its results, using the provided DuckDB connection, parquet file path, and limit.
 inline void RunBasicFSST(duckdb::Connection &con, StringCollection &input, const size_t &total_string_size, Metadata &metadata) {
-    const auto start_time = std::chrono::high_resolution_clock::now();
 
     metadata.amount_of_rows = input.data.size();
     
     size_t total_strings_amount = {0};
     size_t total_compressed_string_size = {0};
+
+    const auto start_time = std::chrono::high_resolution_clock::now();
 
     // Create FSST encoder
     fsst_encoder_t *encoder = CreateEncoder(input.lengths, input.string_ptrs);
@@ -231,7 +232,7 @@ inline void RunBasicFSST(duckdb::Connection &con, StringCollection &input, const
     metadata.run_time_ms = std::chrono::duration<double, std::milli>(end_time - start_time).count();
     metadata.compression_factor = static_cast<double>(total_string_size) / static_cast<double>(total_compressed_string_size);
     
-    PrintCompressionStats(total_strings_amount, total_string_size, total_compressed_string_size);
+    PrintCompressionStats(total_strings_amount, total_string_size, total_compressed_string_size, metadata);
     
     // Store results in the database
     std::string insert_query = "INSERT INTO results VALUES ('" +
