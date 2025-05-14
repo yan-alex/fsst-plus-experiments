@@ -20,7 +20,7 @@
 #include <condition_variable>
 
 namespace config {
-    constexpr size_t total_strings = 100000; // # of input strings
+    constexpr size_t total_strings = 128; // # of input strings
     constexpr bool print_sorted_corpus = false;
     constexpr bool print_split_points = false; // prints compressed corpus displaying split points
     constexpr bool print_similarity_chunks = false;
@@ -324,7 +324,7 @@ void RunFSSTPlus(Connection &con, const size_t &block_granularity, Metadata &met
     compressed_size -= savings;
     metadata.compression_factor = static_cast<double>(total_string_size) / static_cast<double>(compressed_size);
 
-    PrintCompressionStats(n, total_string_size, compressed_size);
+    PrintCompressionStats(n, total_string_size, compressed_size, metadata);
 
     // Add results to table
     string insert_query = "INSERT INTO results VALUES ('" +

@@ -231,7 +231,7 @@ inline void RunBasicFSST(duckdb::Connection &con, StringCollection &input, const
     metadata.run_time_ms = std::chrono::duration<double, std::milli>(end_time - start_time).count();
     metadata.compression_factor = static_cast<double>(total_string_size) / static_cast<double>(total_compressed_string_size);
     
-    PrintCompressionStats(total_strings_amount, total_string_size, total_compressed_string_size);
+    PrintCompressionStats(total_strings_amount, total_string_size, total_compressed_string_size, metadata);
     
     // Store results in the database
     std::string insert_query = "INSERT INTO results VALUES ('" +

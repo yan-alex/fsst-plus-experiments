@@ -85,7 +85,7 @@ inline void RunDictionaryCompression(duckdb::Connection &con, const string &colu
     auto &vector = chunk->data[4];
     const uint32_t *total_compressed_size = FlatVector::GetData<uint32_t>(vector);
     double compression_factor = static_cast<double>(total_string_size) / static_cast<double>(*total_compressed_size);
-    PrintCompressionStats(n, total_string_size, *total_compressed_size);
+    PrintCompressionStats(n, total_string_size, *total_compressed_size, metadata);
 
     // Store results in the database
     std::string insert_query = "INSERT INTO results VALUES ('" +
