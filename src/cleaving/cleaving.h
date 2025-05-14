@@ -35,27 +35,35 @@ inline void TruncatedSort(std::vector<size_t> &lenIn, std::vector<unsigned char 
                 return strIn[a][i] < strIn[b][i];
             }
         }
-        
+
         // If all bytes match up to the shorter length, longer string comes first
         return truncated_lengths[a_rel] > truncated_lengths[b_rel];
     });
+
+    // Create temporary storage arrays instead of vectors
+    size_t tmp_len[cleaving_run_n];
+    unsigned char* tmp_str[cleaving_run_n];
+    size_t tmp_input_lengths[cleaving_run_n];
+    const unsigned char* tmp_input_string_ptrs[cleaving_run_n];
     
+    // Copy only the relevant slice we need to reorder
+    for (size_t i = 0; i < cleaving_run_n; ++i) {
+        size_t idx = start_index + i;
+        tmp_len[i] = lenIn[idx];
+        tmp_str[i] = strIn[idx];
+        tmp_input_lengths[i] = input.lengths[idx];
+        tmp_input_string_ptrs[i] = input.string_ptrs[idx];
+    }
+
     // Reorder using the sorted indices
-    const std::vector<size_t> tmp_len(lenIn);
-    const std::vector<unsigned char *> tmp_str(strIn);
-    
-    // Create temporary copies of the original input vectors
-    const std::vector<size_t> tmp_input_lengths(input.lengths);
-    const std::vector<const unsigned char *> tmp_input_string_ptrs(input.string_ptrs);
-    
     for (size_t k = 0; k < cleaving_run_n; ++k) {
-        lenIn[start_index + k] = tmp_len[indices[k]];
-        strIn[start_index + k] = tmp_str[indices[k]];
+        size_t src_idx = indices[k] - start_index;
+        size_t dst_idx = start_index + k;
         
-        // ALSO REORDER THE ORIGINAL UNCOMPRESSED INPUT
-        // we do this to be able to pairwise compare later on when we verify decompression, to see if it matches with the original
-        input.lengths[start_index + k] = tmp_input_lengths[indices[k]];
-        input.string_ptrs[start_index + k] = tmp_input_string_ptrs[indices[k]];
+        lenIn[dst_idx] = tmp_len[src_idx];
+        strIn[dst_idx] = tmp_str[src_idx];
+        input.lengths[dst_idx] = tmp_input_lengths[src_idx];
+        input.string_ptrs[dst_idx] = tmp_input_string_ptrs[src_idx];
     }
     
     // Print strings
