@@ -7,8 +7,69 @@
 #include "../config.h" // Not needed but prevents ClionIDE from complaining
 #include <algorithm>
 #include <limits>
+#include <unordered_map>
+#include <functional>
 
-// Sort all strings based on their starting characters truncated to the largest multiple of 8 bytes (up to config::max_prefix_size bytes)
+
+inline void InplaceHashGroupingSort(std::vector<unsigned char *> &strIn, const size_t start_index, const size_t &cleaving_run_n, size_t indices[], size_t truncated_lengths[]) {
+    constexpr uint64_t prime_number = 1000000007;
+    
+    // Recursive helper function
+    std::function<void(size_t*, size_t, size_t, size_t)> sortBucket = [&](size_t* bucket_indices, size_t bucket_size, size_t offset, size_t max_length) {
+        // Base cases: single item bucket or we've processed all bytes
+        if (bucket_size <= 1 || offset >= max_length) {
+            return;
+        }
+        
+        // Group strings by their hash at current offset
+        std::unordered_map<uint64_t, std::vector<size_t>> ht;
+        
+        // Find max length in this bucket for termination condition
+        size_t bucket_max_length = 0;
+        
+        for (size_t i = 0; i < bucket_size; i++) {
+            size_t idx = bucket_indices[i];
+            bucket_max_length = std::max(bucket_max_length, truncated_lengths[idx - start_index]);
+            
+            uint64_t hash_key = 0;
+            if (offset < truncated_lengths[idx - start_index]) {
+                // If at least 8 bytes remain, use fast path
+                if (offset + 8 <= truncated_lengths[idx - start_index]) {
+                    hash_key = *reinterpret_cast<const uint64_t*>(strIn[idx] + offset);
+                }
+                hash_key = hash_key * prime_number;
+            }
+            
+            ht[hash_key].push_back(idx);
+        }
+        
+        // Reorder indices and recursively process sub-buckets
+        size_t pos = 0;
+        for (auto& [hash_key, group] : ht) {
+            // Copy group back to the bucket
+            for (size_t idx : group) {
+                bucket_indices[pos++] = idx;
+            }
+            
+            // Recursively sort this group if it has multiple items
+            if (group.size() > 1) {
+                sortBucket(bucket_indices + (pos - group.size()), group.size(), offset + 8, bucket_max_length);
+            }
+        }
+    };
+    
+    // Find maximum string length
+    size_t max_length = 0;
+    for (size_t i = 0; i < cleaving_run_n; i++) {
+        max_length = std::max(max_length, truncated_lengths[i]);
+    }
+    
+    // Start recursive sorting
+    sortBucket(indices, cleaving_run_n, 0, max_length);
+}
+
+// Sort all strings based on their starting characters truncated (up to config::max_prefix_size bytes)
+
 inline void TruncatedSort(std::vector<size_t> &lenIn, std::vector<unsigned char *> &strIn,
                            const size_t start_index, const size_t &cleaving_run_n, StringCollection &input) {
     // Create index array
@@ -21,24 +82,29 @@ inline void TruncatedSort(std::vector<size_t> &lenIn, std::vector<unsigned char 
     size_t truncated_lengths[cleaving_run_n];
     for (size_t i = 0; i < cleaving_run_n; ++i) {
         const size_t idx = start_index + i;
-        truncated_lengths[i] = std::min(lenIn[idx], config::max_prefix_size);
+        // truncated_lengths[i] = std::min(lenIn[idx], config::max_prefix_size);
+
+        // HERE WE CAN MAKE THE TRADEOFF OF SPEED vs. GOOD SORTING
+        truncated_lengths[i] = std::min(lenIn[idx], static_cast<size_t>(8));
     }
 
-    // std::sort uses IntroSort (hybrid of quicksort, heapsort, and insertion sort )
-    std::sort(indices, indices + cleaving_run_n, [&](size_t a, size_t b) {
-        const size_t a_rel = a - start_index;
-        const size_t b_rel = b - start_index;
+    // // std::sort uses IntroSort (hybrid of quicksort, heapsort, and insertion sort )
+    // std::sort(indices, indices + cleaving_run_n, [&](size_t a, size_t b) {
+    //     const size_t a_rel = a - start_index;
+    //     const size_t b_rel = b - start_index;
+    //
+    //     const size_t common_len = std::min(truncated_lengths[a_rel], truncated_lengths[b_rel]);
+    //     for (size_t i = 0; i < common_len; ++i) {
+    //         if (strIn[a][i] != strIn[b][i]) {
+    //             return strIn[a][i] < strIn[b][i];
+    //         }
+    //     }
+    //
+    //     // If all bytes match up to the shorter length, longer string comes first
+    //     return truncated_lengths[a_rel] > truncated_lengths[b_rel];
+    // });
 
-        const size_t common_len = std::min(truncated_lengths[a_rel], truncated_lengths[b_rel]);
-        for (size_t i = 0; i < common_len; ++i) {
-            if (strIn[a][i] != strIn[b][i]) {
-                return strIn[a][i] < strIn[b][i];
-            }
-        }
-
-        // If all bytes match up to the shorter length, longer string comes first
-        return truncated_lengths[a_rel] > truncated_lengths[b_rel];
-    });
+    InplaceHashGroupingSort(strIn, start_index, cleaving_run_n, indices, truncated_lengths);
 
     // Create temporary storage arrays instead of vectors
     size_t tmp_len[cleaving_run_n];

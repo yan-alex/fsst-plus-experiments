@@ -61,14 +61,16 @@ Metadata &metadata
 std::vector<SimilarityChunk> FormBlockwiseSimilarityChunks(const size_t &n, FSSTCompressionResult &input_compressed, const size_t &block_granularity, StringCollection &input) {
     std::vector<SimilarityChunk> similarity_chunks;
     similarity_chunks.reserve(n);
-
+    double sorting_execution_time = 0;
     // Figure out the optimal split points (similarity chunks)
     for (size_t i = 0; i < n; i += block_granularity) {
         const size_t cleaving_run_n = std::min(input_compressed.encoded_string_lengths.size() - i, block_granularity);
 
         // std::cout << "Current Cleaving Run coverage: " << i << ":" << i + cleaving_run_n - 1 << std::endl;
-
+        auto start_time = std::chrono::high_resolution_clock::now();
         TruncatedSort(input_compressed.encoded_string_lengths, input_compressed.encoded_string_ptrs, i, cleaving_run_n, input);
+        auto end_time = std::chrono::high_resolution_clock::now();
+        sorting_execution_time += std::chrono::duration<double, std::milli>(end_time - start_time).count();
 
         const std::vector<SimilarityChunk> cleaving_run_similarity_chunks = FormSimilarityChunks(
             input_compressed.encoded_string_lengths, input_compressed.encoded_string_ptrs, i, cleaving_run_n);
@@ -76,6 +78,7 @@ std::vector<SimilarityChunk> FormBlockwiseSimilarityChunks(const size_t &n, FSST
                                  cleaving_run_similarity_chunks.begin(),
                                  cleaving_run_similarity_chunks.end());
     }
+    printf("Sorting execution time: %f ms\n", sorting_execution_time);
     return similarity_chunks;
 }
 
