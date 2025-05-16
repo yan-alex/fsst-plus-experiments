@@ -9,10 +9,73 @@
 #include <limits>
 #include <unordered_map>
 #include <functional>
+#include <vector>
 
+inline void sortBucket(size_t* corpus_indices, const uint8_t number_of_elements, size_t offset, size_t max_length, std::vector<unsigned char *> &strIn, size_t truncated_lengths[]) {
+    constexpr uint64_t prime_number = 0xc6a4a7935bd1e995U;
 
-inline void InplaceHashGroupingSort(std::vector<unsigned char *> &strIn, const size_t start_index, const size_t &cleaving_run_n, size_t indices[], size_t truncated_lengths[]) {
-    constexpr uint64_t prime_number = 1000000007;
+    // Base cases: single item bucket or we've processed all bytes
+    if (number_of_elements <= 1 || offset >= max_length) {
+        return;
+    }
+
+    uint8_t* ht = new uint8_t[65536];
+    for (int i = 0; i < 65536; ++i) {
+        ht[i] = 255;
+    }
+
+    /*
+     * current bucket pointer.
+     * this works functionally the same as the hashkey, but we use it to access the 2d matrix
+     */
+    uint8_t unique_values_seen = 0;
+    uint8_t index_store_sizes[128] = {0}; // (counts_of_unique_values) stores the size of each row of the 2d matrix index store
+
+    size_t* index_store_flat = new size_t[128 * 128]; // keep track of indices for all buckets
+
+    // Find max length in this bucket for termination condition
+    size_t bucket_max_length = 0;
+
+    for (size_t i = 0; i < number_of_elements; i++) {
+        size_t corpus_i = corpus_indices[i];
+        bucket_max_length = std::max(bucket_max_length, truncated_lengths[i]);
+
+        uint64_t hash = 0;
+        if (offset < truncated_lengths[i]) {
+            // If at least 8 bytes remain, use fast path
+            if (offset + 8 <= truncated_lengths[i]) {
+                hash = *reinterpret_cast<const uint64_t*>(strIn[corpus_i] + offset);
+            }
+            hash = hash * prime_number;
+            // mask the first 16 bits
+            hash = hash & 0xFFFF;
+        }
+        const uint16_t hash_key = static_cast<uint16_t>(hash);
+        if (ht[hash_key] == 255) {
+            ht[hash_key] = unique_values_seen;
+            unique_values_seen ++;
+        }
+        index_store_flat[ht[hash_key] * 128 + index_store_sizes[ht[hash_key]]] = corpus_i;
+        index_store_sizes[ht[hash_key]]++;
+    }
+
+    size_t start_pos = 0;
+    for (int i = 0; i < unique_values_seen; ++i) {
+        const uint8_t group_size = index_store_sizes[i];
+        for (int j = 0; j < group_size; ++j) {
+            corpus_indices[start_pos + j] = index_store_flat[i * 128 + j];
+        }
+        if (group_size > 1) {
+            sortBucket(corpus_indices + start_pos, group_size, offset + 8, bucket_max_length, strIn, truncated_lengths);
+        }
+        start_pos += group_size;
+    }
+    delete[] ht;
+    delete[] index_store_flat;
+};
+
+inline void OldInplaceHashGroupingSort(std::vector<unsigned char *> &strIn, std::vector<size_t> &lenIn, const size_t start_index, const size_t &cleaving_run_n, size_t indices[], size_t truncated_lengths[]) {
+    constexpr uint64_t prime_number = 0xc6a4a7935bd1e995U;
     
     // Recursive helper function
     std::function<void(size_t*, size_t, size_t, size_t)> sortBucket = [&](size_t* bucket_indices, size_t bucket_size, size_t offset, size_t max_length) {
@@ -28,21 +91,34 @@ inline void InplaceHashGroupingSort(std::vector<unsigned char *> &strIn, const s
         size_t bucket_max_length = 0;
         
         for (size_t i = 0; i < bucket_size; i++) {
-            size_t idx = bucket_indices[i];
-            bucket_max_length = std::max(bucket_max_length, truncated_lengths[idx - start_index]);
+            bucket_max_length = std::max(bucket_max_length, truncated_lengths[i]);
             
             uint64_t hash_key = 0;
-            if (offset < truncated_lengths[idx - start_index]) {
+            if (offset < truncated_lengths[i]) {
                 // If at least 8 bytes remain, use fast path
-                if (offset + 8 <= truncated_lengths[idx - start_index]) {
-                    hash_key = *reinterpret_cast<const uint64_t*>(strIn[idx] + offset);
+                if (offset + 8 <= truncated_lengths[i]) {
+                    hash_key = *reinterpret_cast<const uint64_t*>(strIn[i+start_index] + offset);
                 }
                 hash_key = hash_key * prime_number;
             }
             
-            ht[hash_key].push_back(idx);
+            ht[hash_key].push_back(i+start_index);
         }
-        
+
+        // // print groups
+        // for (auto& [hash_key, group] : ht) {
+        //     std::cout << "Group: " << hash_key << " with " << group.size() << " strings" << std::endl;
+        //     for (size_t i : group) {
+        //         std::cout << "i " << std::setw(3) << i << ": ";
+        //         for (size_t j = 0; j < lenIn[i]; ++j) {
+        //             std::cout << std::setw(3) << static_cast<int>(strIn[i][j]) << " ";
+        //             if (j != 0 & j%8 == 0) std::cout << "| ";
+        //         }
+        //         std::cout << std::endl;
+        //     }
+        //     std::cout << std::endl;
+        // }
+
         // Reorder indices and recursively process sub-buckets
         size_t pos = 0;
         for (auto& [hash_key, group] : ht) {
@@ -57,7 +133,7 @@ inline void InplaceHashGroupingSort(std::vector<unsigned char *> &strIn, const s
             }
         }
     };
-    
+
     // Find maximum string length
     size_t max_length = 0;
     for (size_t i = 0; i < cleaving_run_n; i++) {
@@ -73,19 +149,19 @@ inline void InplaceHashGroupingSort(std::vector<unsigned char *> &strIn, const s
 inline void TruncatedSort(std::vector<size_t> &lenIn, std::vector<unsigned char *> &strIn,
                            const size_t start_index, const size_t &cleaving_run_n, StringCollection &input) {
     // Create index array
-    size_t indices[cleaving_run_n];
+    size_t indices[128];
     for (size_t i = 0; i < cleaving_run_n; ++i) {
         indices[i] = start_index + i;
     }
 
     // For each string, calculate its truncated length once
-    size_t truncated_lengths[cleaving_run_n];
+    size_t truncated_lengths[128];
     for (size_t i = 0; i < cleaving_run_n; ++i) {
         const size_t idx = start_index + i;
         // truncated_lengths[i] = std::min(lenIn[idx], config::max_prefix_size);
 
         // HERE WE CAN MAKE THE TRADEOFF OF SPEED vs. GOOD SORTING
-        truncated_lengths[i] = std::min(lenIn[idx], static_cast<size_t>(8));
+        truncated_lengths[i] = std::min(lenIn[idx], static_cast<size_t>(255));
     }
 
     // // std::sort uses IntroSort (hybrid of quicksort, heapsort, and insertion sort )
@@ -99,18 +175,25 @@ inline void TruncatedSort(std::vector<size_t> &lenIn, std::vector<unsigned char 
     //             return strIn[a][i] < strIn[b][i];
     //         }
     //     }
-    //
     //     // If all bytes match up to the shorter length, longer string comes first
     //     return truncated_lengths[a_rel] > truncated_lengths[b_rel];
     // });
 
-    InplaceHashGroupingSort(strIn, start_index, cleaving_run_n, indices, truncated_lengths);
+
+    // Find maximum string length
+    size_t max_length = 0;
+    for (size_t i = 0; i < cleaving_run_n; i++) {
+        max_length = std::max(max_length, truncated_lengths[i]);
+    }
+    // Start recursive sorting
+    sortBucket(indices, cleaving_run_n, 0, max_length, strIn, truncated_lengths);
+
 
     // Create temporary storage arrays instead of vectors
-    size_t tmp_len[cleaving_run_n];
-    unsigned char* tmp_str[cleaving_run_n];
-    size_t tmp_input_lengths[cleaving_run_n];
-    const unsigned char* tmp_input_string_ptrs[cleaving_run_n];
+    size_t tmp_len[128];
+    unsigned char* tmp_str[128];
+    size_t tmp_input_lengths[128];
+    const unsigned char* tmp_input_string_ptrs[128];
     
     // Copy only the relevant slice we need to reorder
     for (size_t i = 0; i < cleaving_run_n; ++i) {
