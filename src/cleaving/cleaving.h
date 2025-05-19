@@ -11,15 +11,15 @@
 #include <functional>
 #include <vector>
 
-inline void sortBucket(size_t* corpus_indices, const uint8_t number_of_elements, size_t offset, size_t max_length, std::vector<unsigned char *> &strIn, size_t truncated_lengths[]) {
+inline void sortBucket(uint8_t* corpus_indices, const size_t start_index, const uint8_t number_of_elements, const size_t horizontal_offset, const size_t max_length, unsigned char* tmp_str[128], size_t truncated_lengths[], uint8_t* ht, uint8_t* index_store_flat, uint8_t* index_store_sizes) {
     constexpr uint64_t prime_number = 0xc6a4a7935bd1e995U;
 
     // Base cases: single item bucket or we've processed all bytes
-    if (number_of_elements <= 1 || offset >= max_length) {
+    if (number_of_elements <= 1 || horizontal_offset >= max_length) {
         return;
     }
 
-    uint8_t* ht = new uint8_t[65536];
+    // Initialize hash table
     for (int i = 0; i < 65536; ++i) {
         ht[i] = 255;
     }
@@ -29,22 +29,26 @@ inline void sortBucket(size_t* corpus_indices, const uint8_t number_of_elements,
      * this works functionally the same as the hashkey, but we use it to access the 2d matrix
      */
     uint8_t unique_values_seen = 0;
-    uint8_t index_store_sizes[128] = {0}; // (counts_of_unique_values) stores the size of each row of the 2d matrix index store
-
-    size_t* index_store_flat = new size_t[128 * 128]; // keep track of indices for all buckets
+    // Reset index store sizes and flat array
+    for (int i = 0; i < 128; ++i) {
+        index_store_sizes[i] = 0;
+    }
+    for (int i = 0; i < 128 * 128; ++i) {
+        index_store_flat[i] = 0;
+    }
 
     // Find max length in this bucket for termination condition
     size_t bucket_max_length = 0;
 
     for (size_t i = 0; i < number_of_elements; i++) {
-        size_t corpus_i = corpus_indices[i];
+        const uint8_t corpus_i = corpus_indices[i];
         bucket_max_length = std::max(bucket_max_length, truncated_lengths[i]);
 
         uint64_t hash = 0;
-        if (offset < truncated_lengths[i]) {
+        if (horizontal_offset < truncated_lengths[i]) {
             // If at least 8 bytes remain, use fast path
-            if (offset + 8 <= truncated_lengths[i]) {
-                hash = *reinterpret_cast<const uint64_t*>(strIn[corpus_i] + offset);
+            if (horizontal_offset + 8 <= truncated_lengths[i]) {
+                hash = *reinterpret_cast<const uint64_t*>(tmp_str[corpus_i] + horizontal_offset);
             }
             hash = hash * prime_number;
             // mask the first 16 bits
@@ -66,12 +70,10 @@ inline void sortBucket(size_t* corpus_indices, const uint8_t number_of_elements,
             corpus_indices[start_pos + j] = index_store_flat[i * 128 + j];
         }
         if (group_size > 1) {
-            sortBucket(corpus_indices + start_pos, group_size, offset + 8, bucket_max_length, strIn, truncated_lengths);
+            sortBucket(corpus_indices + start_pos, start_index, group_size, horizontal_offset + 8, bucket_max_length, tmp_str, truncated_lengths, ht, index_store_flat, index_store_sizes);
         }
         start_pos += group_size;
     }
-    delete[] ht;
-    delete[] index_store_flat;
 };
 
 inline void OldInplaceHashGroupingSort(std::vector<unsigned char *> &strIn, std::vector<size_t> &lenIn, const size_t start_index, const size_t &cleaving_run_n, size_t indices[], size_t truncated_lengths[]) {
@@ -148,45 +150,7 @@ inline void OldInplaceHashGroupingSort(std::vector<unsigned char *> &strIn, std:
 
 inline void TruncatedSort(std::vector<size_t> &lenIn, std::vector<unsigned char *> &strIn,
                            const size_t start_index, const size_t &cleaving_run_n, StringCollection &input) {
-    // Create index array
-    size_t indices[128];
-    for (size_t i = 0; i < cleaving_run_n; ++i) {
-        indices[i] = start_index + i;
-    }
 
-    // For each string, calculate its truncated length once
-    size_t truncated_lengths[128];
-    for (size_t i = 0; i < cleaving_run_n; ++i) {
-        const size_t idx = start_index + i;
-        // truncated_lengths[i] = std::min(lenIn[idx], config::max_prefix_size);
-
-        // HERE WE CAN MAKE THE TRADEOFF OF SPEED vs. GOOD SORTING
-        truncated_lengths[i] = std::min(lenIn[idx], static_cast<size_t>(255));
-    }
-
-    // // std::sort uses IntroSort (hybrid of quicksort, heapsort, and insertion sort )
-    // std::sort(indices, indices + cleaving_run_n, [&](size_t a, size_t b) {
-    //     const size_t a_rel = a - start_index;
-    //     const size_t b_rel = b - start_index;
-    //
-    //     const size_t common_len = std::min(truncated_lengths[a_rel], truncated_lengths[b_rel]);
-    //     for (size_t i = 0; i < common_len; ++i) {
-    //         if (strIn[a][i] != strIn[b][i]) {
-    //             return strIn[a][i] < strIn[b][i];
-    //         }
-    //     }
-    //     // If all bytes match up to the shorter length, longer string comes first
-    //     return truncated_lengths[a_rel] > truncated_lengths[b_rel];
-    // });
-
-
-    // Find maximum string length
-    size_t max_length = 0;
-    for (size_t i = 0; i < cleaving_run_n; i++) {
-        max_length = std::max(max_length, truncated_lengths[i]);
-    }
-    // Start recursive sorting
-    sortBucket(indices, cleaving_run_n, 0, max_length, strIn, truncated_lengths);
 
 
     // Create temporary storage arrays instead of vectors
@@ -194,26 +158,64 @@ inline void TruncatedSort(std::vector<size_t> &lenIn, std::vector<unsigned char 
     unsigned char* tmp_str[128];
     size_t tmp_input_lengths[128];
     const unsigned char* tmp_input_string_ptrs[128];
-    
-    // Copy only the relevant slice we need to reorder
+
+    uint8_t indices[128];
+    size_t truncated_lengths[128];
+
+    // Allocate arrays for sortBucket
+    uint8_t* ht = new uint8_t[65536];
+    uint8_t* index_store_flat = new uint8_t[128 * 128];
+    uint8_t* index_store_sizes = new uint8_t[128];
+
+    size_t max_length = 0;
+
     for (size_t i = 0; i < cleaving_run_n; ++i) {
-        size_t idx = start_index + i;
+        indices[i] = i;
+
+        const size_t idx = start_index + i;
+        // HERE WE CAN MAKE THE TRADEOFF OF SPEED vs. GOOD SORTING
+        truncated_lengths[i] = std::min(lenIn[idx], static_cast<size_t>(255));
+
+        max_length = std::max(max_length, truncated_lengths[i]);
+
         tmp_len[i] = lenIn[idx];
         tmp_str[i] = strIn[idx];
         tmp_input_lengths[i] = input.lengths[idx];
         tmp_input_string_ptrs[i] = input.string_ptrs[idx];
     }
 
+    // // std::sort uses IntroSort (hybrid of quicksort, heapsort, and insertion sort )
+    // std::sort(indices, indices + cleaving_run_n, [&](uint8_t a, uint8_t b) {
+    //     const size_t a_corpus = a + start_index;
+    //     const size_t b_corpus = b + start_index;
+    //
+    //     const size_t common_len = std::min(truncated_lengths[a], truncated_lengths[b]);
+    //     for (size_t i = 0; i < common_len; ++i) {
+    //         if (strIn[a_corpus][i] != strIn[b_corpus][i]) {
+    //             return strIn[a_corpus][i] < strIn[b_corpus][i];
+    //         }
+    //     }
+    //     // If all bytes match up to the shorter length, longer string comes first
+    //     return truncated_lengths[a] > truncated_lengths[b];
+    // });
+
+    sortBucket(indices, start_index, cleaving_run_n, 0, max_length, tmp_str, truncated_lengths, ht, index_store_flat, index_store_sizes);
+
     // Reorder using the sorted indices
-    for (size_t k = 0; k < cleaving_run_n; ++k) {
-        size_t src_idx = indices[k] - start_index;
-        size_t dst_idx = start_index + k;
+    for (size_t i = 0; i < cleaving_run_n; ++i) {
+        size_t src_idx = indices[i];
+        size_t dst_idx = start_index + i;
         
         lenIn[dst_idx] = tmp_len[src_idx];
         strIn[dst_idx] = tmp_str[src_idx];
         input.lengths[dst_idx] = tmp_input_lengths[src_idx];
         input.string_ptrs[dst_idx] = tmp_input_string_ptrs[src_idx];
     }
+
+    // Deallocate arrays
+    delete[] ht;
+    delete[] index_store_flat;
+    delete[] index_store_sizes;
     
     // Print strings
     if (config::print_sorted_corpus) {
