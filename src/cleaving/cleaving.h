@@ -11,14 +11,26 @@
 #include <functional>
 #include <vector>
 
-inline void sortBucket(uint8_t* corpus_indices, const size_t start_index, const uint8_t number_of_elements, const size_t horizontal_offset, const size_t max_length, unsigned char* tmp_str[128], size_t truncated_lengths[], uint8_t* ht, uint8_t* index_store_flat, uint8_t* index_store_sizes) {
+inline void sortBucket(uint8_t* local_indices, const size_t start_index, const uint8_t number_of_elements, const size_t horizontal_offset, const size_t max_length, unsigned char* tmp_str[128], size_t truncated_lengths[], uint8_t* ht, uint8_t* index_store_flat, uint8_t* index_store_sizes) {
+    // printf("⚡️🪣 sortBucket() start at: %d, %d elements, horizontal_offset: %lu\n", local_indices[0], number_of_elements, horizontal_offset);
+    // for (int i = 0; i < number_of_elements; ++i) {
+    //     printf("local index %hhu\n", local_indices[i]);
+    // }
+    // for (int i = 0; i < number_of_elements; ++i) {
+    //     std::cout << "string i " << std::setw(3) << i << ": ";
+    //     const uint8_t actual_index = local_indices[i];
+    //     for (int j = 0; j < truncated_lengths[actual_index]; ++j) {
+    //         std::cout << static_cast<int>((tmp_str[actual_index])[j]) << " ";
+    //     }
+    //     std::cout << "\n";
+    // }
     constexpr uint64_t prime_number = 0xc6a4a7935bd1e995U;
-
     // Base cases: single item bucket or we've processed all bytes
     if (number_of_elements <= 1 || horizontal_offset >= max_length) {
+        // printf("↩️ RETURNING\n");
         return;
     }
-
+    // printf("☣️RESETTING ALL ARRAYS ☣️");
     // Initialize hash table
     for (int i = 0; i < 65536; ++i) {
         ht[i] = 255;
@@ -28,7 +40,6 @@ inline void sortBucket(uint8_t* corpus_indices, const size_t start_index, const 
      * current bucket pointer.
      * this works functionally the same as the hashkey, but we use it to access the 2d matrix
      */
-    uint8_t unique_values_seen = 0;
     // Reset index store sizes and flat array
     for (int i = 0; i < 128; ++i) {
         index_store_sizes[i] = 0;
@@ -37,18 +48,20 @@ inline void sortBucket(uint8_t* corpus_indices, const size_t start_index, const 
         index_store_flat[i] = 0;
     }
 
+    uint8_t unique_values_seen = 0;
+
     // Find max length in this bucket for termination condition
     size_t bucket_max_length = 0;
 
     for (size_t i = 0; i < number_of_elements; i++) {
-        const uint8_t corpus_i = corpus_indices[i];
-        bucket_max_length = std::max(bucket_max_length, truncated_lengths[i]);
+        const uint8_t local_i = local_indices[i];
+        bucket_max_length = std::max(bucket_max_length, truncated_lengths[local_i]);
 
         uint64_t hash = 0;
-        if (horizontal_offset < truncated_lengths[i]) {
+        if (horizontal_offset < truncated_lengths[local_i]) {
             // If at least 8 bytes remain, use fast path
-            if (horizontal_offset + 8 <= truncated_lengths[i]) {
-                hash = *reinterpret_cast<const uint64_t*>(tmp_str[corpus_i] + horizontal_offset);
+            if (horizontal_offset + 8 <= truncated_lengths[local_i]) {
+                hash = *reinterpret_cast<const uint64_t*>(tmp_str[local_i] + horizontal_offset);
             }
             hash = hash * prime_number;
             // mask the first 16 bits
@@ -57,94 +70,37 @@ inline void sortBucket(uint8_t* corpus_indices, const size_t start_index, const 
         const uint16_t hash_key = static_cast<uint16_t>(hash);
         if (ht[hash_key] == 255) {
             ht[hash_key] = unique_values_seen;
+            // printf("set ht[%d] to %d\n", hash_key, unique_values_seen);
             unique_values_seen ++;
         }
-        index_store_flat[ht[hash_key] * 128 + index_store_sizes[ht[hash_key]]] = corpus_i;
+        index_store_flat[ht[hash_key] * 128 + index_store_sizes[ht[hash_key]]] = local_i;
         index_store_sizes[ht[hash_key]]++;
+        // printf("index_store_sizes[%d]++, is now %d\n", ht[hash_key], index_store_sizes[ht[hash_key]]);
     }
 
     size_t start_pos = 0;
     for (int i = 0; i < unique_values_seen; ++i) {
+        // printf("retrieving  index_store_sizes[%d]... value is: %d\n", i, index_store_sizes[i]);
+
         const uint8_t group_size = index_store_sizes[i];
         for (int j = 0; j < group_size; ++j) {
-            corpus_indices[start_pos + j] = index_store_flat[i * 128 + j];
+            local_indices[start_pos + j] = index_store_flat[i * 128 + j];
         }
-        if (group_size > 1) {
-            sortBucket(corpus_indices + start_pos, start_index, group_size, horizontal_offset + 8, bucket_max_length, tmp_str, truncated_lengths, ht, index_store_flat, index_store_sizes);
+        if (group_size > 1 && bucket_max_length > horizontal_offset + 8) {
+            uint8_t* ht2 = new uint8_t[65536];
+            uint8_t* index_store_flat2 = new uint8_t[128 * 128];
+            uint8_t* index_store_sizes2 = new uint8_t[128];
+
+            sortBucket(local_indices + start_pos, start_index, group_size, horizontal_offset + 8, bucket_max_length, tmp_str, truncated_lengths, ht2, index_store_flat2, index_store_sizes2);
+
+            delete[] ht2;
+            delete[] index_store_flat2;
+            delete[] index_store_sizes2;
         }
         start_pos += group_size;
     }
 };
 
-inline void OldInplaceHashGroupingSort(std::vector<unsigned char *> &strIn, std::vector<size_t> &lenIn, const size_t start_index, const size_t &cleaving_run_n, size_t indices[], size_t truncated_lengths[]) {
-    constexpr uint64_t prime_number = 0xc6a4a7935bd1e995U;
-    
-    // Recursive helper function
-    std::function<void(size_t*, size_t, size_t, size_t)> sortBucket = [&](size_t* bucket_indices, size_t bucket_size, size_t offset, size_t max_length) {
-        // Base cases: single item bucket or we've processed all bytes
-        if (bucket_size <= 1 || offset >= max_length) {
-            return;
-        }
-        
-        // Group strings by their hash at current offset
-        std::unordered_map<uint64_t, std::vector<size_t>> ht;
-        
-        // Find max length in this bucket for termination condition
-        size_t bucket_max_length = 0;
-        
-        for (size_t i = 0; i < bucket_size; i++) {
-            bucket_max_length = std::max(bucket_max_length, truncated_lengths[i]);
-            
-            uint64_t hash_key = 0;
-            if (offset < truncated_lengths[i]) {
-                // If at least 8 bytes remain, use fast path
-                if (offset + 8 <= truncated_lengths[i]) {
-                    hash_key = *reinterpret_cast<const uint64_t*>(strIn[i+start_index] + offset);
-                }
-                hash_key = hash_key * prime_number;
-            }
-            
-            ht[hash_key].push_back(i+start_index);
-        }
-
-        // // print groups
-        // for (auto& [hash_key, group] : ht) {
-        //     std::cout << "Group: " << hash_key << " with " << group.size() << " strings" << std::endl;
-        //     for (size_t i : group) {
-        //         std::cout << "i " << std::setw(3) << i << ": ";
-        //         for (size_t j = 0; j < lenIn[i]; ++j) {
-        //             std::cout << std::setw(3) << static_cast<int>(strIn[i][j]) << " ";
-        //             if (j != 0 & j%8 == 0) std::cout << "| ";
-        //         }
-        //         std::cout << std::endl;
-        //     }
-        //     std::cout << std::endl;
-        // }
-
-        // Reorder indices and recursively process sub-buckets
-        size_t pos = 0;
-        for (auto& [hash_key, group] : ht) {
-            // Copy group back to the bucket
-            for (size_t idx : group) {
-                bucket_indices[pos++] = idx;
-            }
-            
-            // Recursively sort this group if it has multiple items
-            if (group.size() > 1) {
-                sortBucket(bucket_indices + (pos - group.size()), group.size(), offset + 8, bucket_max_length);
-            }
-        }
-    };
-
-    // Find maximum string length
-    size_t max_length = 0;
-    for (size_t i = 0; i < cleaving_run_n; i++) {
-        max_length = std::max(max_length, truncated_lengths[i]);
-    }
-    
-    // Start recursive sorting
-    sortBucket(indices, cleaving_run_n, 0, max_length);
-}
 
 // Sort all strings based on their starting characters truncated (up to config::max_prefix_size bytes)
 
@@ -174,7 +130,7 @@ inline void TruncatedSort(std::vector<size_t> &lenIn, std::vector<unsigned char 
 
         const size_t idx = start_index + i;
         // HERE WE CAN MAKE THE TRADEOFF OF SPEED vs. GOOD SORTING
-        truncated_lengths[i] = std::min(lenIn[idx], static_cast<size_t>(255));
+        truncated_lengths[i] = std::min(lenIn[idx], static_cast<size_t>(8));
 
         max_length = std::max(max_length, truncated_lengths[i]);
 
