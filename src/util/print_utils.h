@@ -51,16 +51,23 @@ inline void PrintStringWithSplitPoints(
     const std::vector<size_t> &suffixLenIn,
     const std::vector<const unsigned char *> &suffixStrIn,
     const SimilarityChunk &chunk,
-    const size_t string_index
+    const size_t string_index,
+    const bool chunk_alternator
 ) {
-    std::cout << "string " << std::setw(3) << string_index << ": ";
+    std::string chunk_flag;
+    if (chunk_alternator) {
+        chunk_flag = "🟥";
+    } else {
+        chunk_flag = "🟦";
+    }
+    std::cout << "string " << std::setw(3) << string_index << ": " << chunk_flag << " ";
     for (size_t j = 0; j < chunk.prefix_length; j++) {
-        std::cout << static_cast<int>(strIn[chunk.start_index][j]) << " ";
+        std::cout << std::setw(2) << static_cast<int>(strIn[chunk.start_index][j]) << " ";
     }
 
     std::cout << "✳️"; // ✳️ = split point
     for (size_t j = 0; j < suffixLenIn[suffixLenIn.size() - 1]; j++) {
-        std::cout << static_cast<int>(suffixStrIn[suffixStrIn.size() - 1][j]) << " ";
+        std::cout << std::setw(2) << static_cast<int>(suffixStrIn[suffixStrIn.size() - 1][j]) << " ";
     }
     std::cout << "\n";
 }

@@ -20,10 +20,10 @@
 #include <condition_variable>
 
 namespace config {
-    constexpr size_t total_strings = 100000; // # of input strings
+    constexpr size_t total_strings = 40; // # of input strings
     constexpr bool print_sorted_corpus = false;
-    constexpr bool print_split_points = false; // prints compressed corpus displaying split points
-    constexpr bool print_similarity_chunks = false;
+    constexpr bool print_split_points = true; // prints compressed corpus displaying split points
+    constexpr bool print_similarity_chunks = true;
     constexpr bool print_decompressed_corpus = false;
 }
 
@@ -68,12 +68,12 @@ std::vector<SimilarityChunk> FormBlockwiseSimilarityChunks(const size_t &n, FSST
 
         // std::cout << "Current Cleaving Run coverage: " << i << ":" << i + cleaving_run_n - 1 << std::endl;
         auto start_time = std::chrono::high_resolution_clock::now();
-        TruncatedSort(input_compressed.encoded_string_lengths, input_compressed.encoded_string_ptrs, i, cleaving_run_n, input);
+        const std::vector<SimilarityChunk> cleaving_run_similarity_chunks = TruncatedSort(input_compressed.encoded_string_lengths, input_compressed.encoded_string_ptrs, i, cleaving_run_n, input);
         auto end_time = std::chrono::high_resolution_clock::now();
         sorting_execution_time += std::chrono::duration<double, std::milli>(end_time - start_time).count();
 
-        const std::vector<SimilarityChunk> cleaving_run_similarity_chunks = FormSimilarityChunks(
-            input_compressed.encoded_string_lengths, input_compressed.encoded_string_ptrs, i, cleaving_run_n);
+        // const std::vector<SimilarityChunk> cleaving_run_similarity_chunks = FormSimilarityChunks(
+        //     input_compressed.encoded_string_lengths, input_compressed.encoded_string_ptrs, i, cleaving_run_n);
         similarity_chunks.insert(similarity_chunks.end(),
                                  cleaving_run_similarity_chunks.begin(),
                                  cleaving_run_similarity_chunks.end());
@@ -292,7 +292,6 @@ void RunFSSTPlus(Connection &con, const size_t &block_granularity, Metadata &met
         std::cout << "🤓 Similarity Chunks 🤓\n";
         for (int i = 0; i < similarity_chunks.size(); ++i) {
             std::cout
-                    // << "i:" << std::setw(6) << i
                     << " start_index: " << std::setw(6)<< similarity_chunks[i].start_index << " prefix_length: " << std::setw(3) <<similarity_chunks[i].prefix_length
                     << " PREFIX: ";
 
