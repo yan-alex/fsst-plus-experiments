@@ -106,3 +106,46 @@ inline void PrintCompressionStats(
     std::cout << "Compression factor: " << static_cast<double>(total_string_size) / total_compressed_string_size << "\n";
     std::cout << "Runtime: " << metadata.run_time_ms << "\n";
 }
+
+inline void PrintCurrentOrder(uint8_t *local_indices, const uint8_t number_of_elements, unsigned char **tmp_str, const uint8_t *truncated_lengths, const uint8_t horizontal_offset, uint8_t depth) {
+    for (int i = 0; i < number_of_elements; ++i) {
+        const uint8_t actual_index = local_indices[i];
+        for (int i = 0; i < depth; ++i) {
+            std::cout << "\t";
+        }
+        std::cout << "local_indices[" << std::setw(2) << i << "] = " << std::setw(2) << static_cast<int>(local_indices[i]) << " -> ";
+        std::cout << "string length " << std::setw(2) << static_cast<int>(truncated_lengths[actual_index]) << ": ";
+        if (horizontal_offset == 0) {
+            std::cout<<"\033[1;31m";
+        }
+        for (int j = 0; j < truncated_lengths[actual_index]; ++j) {
+
+
+            std::cout << std::setw(2) << static_cast<int>((tmp_str[actual_index])[j]);
+
+            if ((j+1)%8 == 0) {
+                std::cout<< "\033[0m  ⎪  ";
+                if (j+1 == horizontal_offset) {
+                    std::cout<<"\033[1;31m";
+                }
+            } else {
+                std::cout<< " ";
+            }
+        }
+        std::cout << "\033[0m\n";
+    }
+}
+
+// Printf wrapper that adds depth-based indentation with tabs
+inline void printfd(uint8_t depth, const char* format, ...) {
+    // Print tabs based on depth
+    for (int i = 0; i < depth; ++i) {
+        std::cout << '\t';
+    }
+
+    // Handle variable arguments
+    va_list args;
+    va_start(args, format);
+    vprintf(format, args);
+    va_end(args);
+}

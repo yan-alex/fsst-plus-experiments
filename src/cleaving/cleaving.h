@@ -10,27 +10,31 @@
 #include <unordered_map>
 #include <functional>
 #include <vector>
+#include <cstdarg>
+#include <stack>
 
-inline void sortBucket(uint8_t* local_indices, const size_t start_index, const uint8_t number_of_elements, const size_t horizontal_offset, const size_t max_length, unsigned char* tmp_str[128], size_t truncated_lengths[], uint8_t* ht, uint8_t* index_store_flat, uint8_t* index_store_sizes) {
-    // printf("⚡️🪣 sortBucket() start at: %d, %d elements, horizontal_offset: %lu\n", local_indices[0], number_of_elements, horizontal_offset);
-    // for (int i = 0; i < number_of_elements; ++i) {
-    //     printf("local index %hhu\n", local_indices[i]);
+struct WorkItem {
+    uint8_t* local_indices;
+    uint8_t number_of_elements;
+    uint8_t max_length;
+    uint8_t start_pos; //TODO: remove this for release, as it's just for logging
+};
+
+inline void sortBucket(uint8_t *local_indices, const size_t start_index, const uint8_t number_of_elements,
+                       const uint8_t horizontal_offset, const uint8_t max_length, unsigned char *tmp_str[128],
+                       uint8_t truncated_lengths[], uint8_t *ht, uint8_t *index_store_flat,
+                       uint8_t *index_store_sizes, uint8_t depth) {
+
+
+    // if (number_of_elements <= 1 || horizontal_offset >= max_length) { // Base cases: single item bucket or we've processed all bytes
+    //     printfd(depth, "↩️ RETURNING\n"); //TODO: eventually we can calc new sim chunks here and return them?
+    //     return;
     // }
-    // for (int i = 0; i < number_of_elements; ++i) {
-    //     std::cout << "string i " << std::setw(3) << i << ": ";
-    //     const uint8_t actual_index = local_indices[i];
-    //     for (int j = 0; j < truncated_lengths[actual_index]; ++j) {
-    //         std::cout << static_cast<int>((tmp_str[actual_index])[j]) << " ";
-    //     }
-    //     std::cout << "\n";
-    // }
-    constexpr uint64_t prime_number = 0xc6a4a7935bd1e995U;
-    // Base cases: single item bucket or we've processed all bytes
-    if (number_of_elements <= 1 || horizontal_offset >= max_length) {
-        // printf("↩️ RETURNING\n");
-        return;
-    }
-    // printf("☣️RESETTING ALL ARRAYS ☣️");
+
+    // PrintCurrentOrder(local_indices, number_of_elements, tmp_str, truncated_lengths, horizontal_offset, depth);
+
+    // printfd(depth, "☢️ RESETTING ALL ARRAYS ☢️\n");
+
     // Initialize hash table
     for (int i = 0; i < 65536; ++i) {
         ht[i] = 255;
@@ -51,54 +55,83 @@ inline void sortBucket(uint8_t* local_indices, const size_t start_index, const u
     uint8_t unique_values_seen = 0;
 
     // Find max length in this bucket for termination condition
-    size_t bucket_max_length = 0;
-
     for (size_t i = 0; i < number_of_elements; i++) {
         const uint8_t local_i = local_indices[i];
-        bucket_max_length = std::max(bucket_max_length, truncated_lengths[local_i]);
 
         uint64_t hash = 0;
         if (horizontal_offset < truncated_lengths[local_i]) {
-            // If at least 8 bytes remain, use fast path
+            constexpr uint64_t prime_number = 0xc6a4a7935bd1e995U;
+            // If at least 8 bytes remain, use fast 64-bit read
             if (horizontal_offset + 8 <= truncated_lengths[local_i]) {
                 hash = *reinterpret_cast<const uint64_t*>(tmp_str[local_i] + horizontal_offset);
+                // Better bit mixing with single operation
+                hash = (hash * prime_number) ^ (hash >> 37);
+            } else {
+                // Handle smaller chunks with a single read
+                memcpy(&hash, tmp_str[local_i] + horizontal_offset, truncated_lengths[local_i] - horizontal_offset);
+                hash = (hash * prime_number) ^ (hash >> 37);
             }
-            hash = hash * prime_number;
-            // mask the first 16 bits
             hash = hash & 0xFFFF;
         }
         const uint16_t hash_key = static_cast<uint16_t>(hash);
+
         if (ht[hash_key] == 255) {
+            // printfd(depth, "hash_key: %d\n", hash_key);
             ht[hash_key] = unique_values_seen;
-            // printf("set ht[%d] to %d\n", hash_key, unique_values_seen);
             unique_values_seen ++;
+        } else {
+            // printfd(depth, "✧ existing hash_key: %d\n", hash_key);
         }
         index_store_flat[ht[hash_key] * 128 + index_store_sizes[ht[hash_key]]] = local_i;
         index_store_sizes[ht[hash_key]]++;
         // printf("index_store_sizes[%d]++, is now %d\n", ht[hash_key], index_store_sizes[ht[hash_key]]);
     }
 
-    size_t start_pos = 0;
-    for (int i = 0; i < unique_values_seen; ++i) {
+    uint8_t start_pos = 0;
+    uint8_t max_lengths_per_bucket[128] = {0};
+    for (int i = 0; i < unique_values_seen; ++i) { // fill local indices entirely before recursion
         // printf("retrieving  index_store_sizes[%d]... value is: %d\n", i, index_store_sizes[i]);
 
         const uint8_t group_size = index_store_sizes[i];
         for (int j = 0; j < group_size; ++j) {
             local_indices[start_pos + j] = index_store_flat[i * 128 + j];
+            max_lengths_per_bucket[i] = std::max(truncated_lengths[local_indices[start_pos + j]], max_lengths_per_bucket[i]);
         }
-        if (group_size > 1 && bucket_max_length > horizontal_offset + 8) {
-            uint8_t* ht2 = new uint8_t[65536];
-            uint8_t* index_store_flat2 = new uint8_t[128 * 128];
-            uint8_t* index_store_sizes2 = new uint8_t[128];
 
-            sortBucket(local_indices + start_pos, start_index, group_size, horizontal_offset + 8, bucket_max_length, tmp_str, truncated_lengths, ht2, index_store_flat2, index_store_sizes2);
+        start_pos += group_size;
+    }
 
-            delete[] ht2;
-            delete[] index_store_flat2;
-            delete[] index_store_sizes2;
+    // printfd(depth, "✍️🔥 OVERWRITE local_indices \n");
+    // PrintCurrentOrder(local_indices, number_of_elements, tmp_str, truncated_lengths, horizontal_offset, depth);
+
+    start_pos = 0;
+    // printfd(depth, "unique_values_seen %d\n", unique_values_seen);
+
+    std::queue<WorkItem> work_queue;
+    
+    for (int i = 0; i < unique_values_seen; ++i) {
+        // printfd(depth, "i: %d\n", i);
+        const uint8_t group_size = index_store_sizes[i];
+        if (group_size >= 3 && horizontal_offset+8 < max_lengths_per_bucket[i]) { // Base cases: single item bucket or we've processed all bytes
+            work_queue.push(WorkItem{
+                local_indices + start_pos,
+                group_size,
+                max_lengths_per_bucket[i],
+                start_pos
+            });
         }
         start_pos += group_size;
     }
+
+    while (!work_queue.empty()) {
+        const WorkItem current = work_queue.front();
+        work_queue.pop();
+        // std::cout << "\n";
+        // printfd(depth + 1, "⚡️🪣 Recursive sortBucket() start at: %d, %d elements, horizontal_offset: %hhu\n", current.start_pos, current.number_of_elements, horizontal_offset + 8);
+        sortBucket(current.local_indices, start_index, current.number_of_elements, horizontal_offset + 8, current.max_length,tmp_str,truncated_lengths,ht,index_store_flat,index_store_sizes, depth+1);
+    }
+
+
 };
 
 
@@ -116,21 +149,21 @@ inline void TruncatedSort(std::vector<size_t> &lenIn, std::vector<unsigned char 
     const unsigned char* tmp_input_string_ptrs[128];
 
     uint8_t indices[128];
-    size_t truncated_lengths[128];
+    uint8_t truncated_lengths[128];
 
     // Allocate arrays for sortBucket
     uint8_t* ht = new uint8_t[65536];
     uint8_t* index_store_flat = new uint8_t[128 * 128];
     uint8_t* index_store_sizes = new uint8_t[128];
 
-    size_t max_length = 0;
+    uint8_t max_length = 0;
 
     for (size_t i = 0; i < cleaving_run_n; ++i) {
         indices[i] = i;
 
         const size_t idx = start_index + i;
         // HERE WE CAN MAKE THE TRADEOFF OF SPEED vs. GOOD SORTING
-        truncated_lengths[i] = std::min(lenIn[idx], static_cast<size_t>(8));
+        truncated_lengths[i] = std::min(lenIn[idx], static_cast<size_t>(255));
 
         max_length = std::max(max_length, truncated_lengths[i]);
 
@@ -155,7 +188,7 @@ inline void TruncatedSort(std::vector<size_t> &lenIn, std::vector<unsigned char 
     //     return truncated_lengths[a] > truncated_lengths[b];
     // });
 
-    sortBucket(indices, start_index, cleaving_run_n, 0, max_length, tmp_str, truncated_lengths, ht, index_store_flat, index_store_sizes);
+    sortBucket(indices, start_index, cleaving_run_n, 0, max_length, tmp_str, truncated_lengths, ht, index_store_flat, index_store_sizes, 0);
 
     // Reorder using the sorted indices
     for (size_t i = 0; i < cleaving_run_n; ++i) {
