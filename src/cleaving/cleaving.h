@@ -26,59 +26,25 @@ inline void sortBucket(uint8_t *local_indices, const size_t start_index, const u
                        uint8_t *index_store_sizes, uint8_t depth) {
 
 
-    // if (number_of_elements <= 1 || horizontal_offset >= max_length) { // Base cases: single item bucket or we've processed all bytes
-    //     printfd(depth, "↩️ RETURNING\n"); //TODO: eventually we can calc new sim chunks here and return them?
-    //     return;
-    // }
 
     // PrintCurrentOrder(local_indices, number_of_elements, tmp_str, truncated_lengths, horizontal_offset, depth);
-
-    // printfd(depth, "☢️ RESETTING ALL ARRAYS ☢️\n");
-
-    // Initialize hash table
-    for (int i = 0; i < 65536; ++i) {
-        ht[i] = 255;
-    }
-
-    /*
-     * current bucket pointer.
-     * this works functionally the same as the hashkey, but we use it to access the 2d matrix
-     */
-    // Reset index store sizes and flat array
-    for (int i = 0; i < 128; ++i) {
-        index_store_sizes[i] = 0;
-    }
-    for (int i = 0; i < 128 * 128; ++i) {
-        index_store_flat[i] = 0;
-    }
-
+    uint16_t hash_keys_used[128]; // To efficiently wipe hashtable later
     uint8_t unique_values_seen = 0;
 
-    // Find max length in this bucket for termination condition
     for (size_t i = 0; i < number_of_elements; i++) {
         const uint8_t local_i = local_indices[i];
-
-        uint64_t hash = 0;
-        if (horizontal_offset < truncated_lengths[local_i]) {
-            constexpr uint64_t prime_number = 0xc6a4a7935bd1e995U;
-            // If at least 8 bytes remain, use fast 64-bit read
-            if (horizontal_offset + 8 <= truncated_lengths[local_i]) {
-                hash = *reinterpret_cast<const uint64_t*>(tmp_str[local_i] + horizontal_offset);
-                // Better bit mixing with single operation
-                hash = (hash * prime_number) ^ (hash >> 37);
-            } else {
-                // Handle smaller chunks with a single read
-                memcpy(&hash, tmp_str[local_i] + horizontal_offset, truncated_lengths[local_i] - horizontal_offset);
-                hash = (hash * prime_number) ^ (hash >> 37);
-            }
-            hash = hash & 0xFFFF;
-        }
+        constexpr uint64_t prime_number = 0xc6a4a7935bd1e995U;
+        // assert(horizontal_offset + 8 <= truncated_lengths[local_i]);
+        uint64_t hash = *reinterpret_cast<const uint64_t*>(tmp_str[local_i] + horizontal_offset);
+        hash = (hash * prime_number) ^ (hash >> 37);
+        hash = hash & 0xFFFF;
         const uint16_t hash_key = static_cast<uint16_t>(hash);
 
         if (ht[hash_key] == 255) {
             // printfd(depth, "hash_key: %d\n", hash_key);
             ht[hash_key] = unique_values_seen;
             unique_values_seen ++;
+            hash_keys_used[ht[hash_key]] = hash_key; // To efficiently wipe hashtable later
         } else {
             // printfd(depth, "✧ existing hash_key: %d\n", hash_key);
         }
@@ -89,7 +55,7 @@ inline void sortBucket(uint8_t *local_indices, const size_t start_index, const u
 
     uint8_t start_pos = 0;
     uint8_t max_lengths_per_bucket[128] = {0};
-    for (int i = 0; i < unique_values_seen; ++i) { // fill local indices entirely before recursion
+    for (int i = 0; i < unique_values_seen; ++i) {
         // printf("retrieving  index_store_sizes[%d]... value is: %d\n", i, index_store_sizes[i]);
 
         const uint8_t group_size = index_store_sizes[i];
@@ -104,15 +70,13 @@ inline void sortBucket(uint8_t *local_indices, const size_t start_index, const u
     // printfd(depth, "✍️🔥 OVERWRITE local_indices \n");
     // PrintCurrentOrder(local_indices, number_of_elements, tmp_str, truncated_lengths, horizontal_offset, depth);
 
-    start_pos = 0;
-    // printfd(depth, "unique_values_seen %d\n", unique_values_seen);
 
+    start_pos = 0;
     std::queue<WorkItem> work_queue;
-    
     for (int i = 0; i < unique_values_seen; ++i) {
         // printfd(depth, "i: %d\n", i);
         const uint8_t group_size = index_store_sizes[i];
-        if (group_size >= 3 && horizontal_offset+8 < max_lengths_per_bucket[i]) { // Base cases: single item bucket or we've processed all bytes
+        if (group_size >= 3 && horizontal_offset+8 <= max_lengths_per_bucket[i]) { // Base cases: single item bucket or we've processed all bytes
             work_queue.push(WorkItem{
                 local_indices + start_pos,
                 group_size,
@@ -121,6 +85,16 @@ inline void sortBucket(uint8_t *local_indices, const size_t start_index, const u
             });
         }
         start_pos += group_size;
+    }
+
+    // printfd(depth, "☢️ Cleaning old values from arrays ☢️\n");
+    for (int i = 0; i < unique_values_seen; ++i) {
+        ht[hash_keys_used[i]] = 255;
+        uint8_t group_size = index_store_sizes[i];
+        for (int j = 0; j < group_size; ++j) {
+            index_store_flat[i * 128 + j] = 0;
+        }
+        index_store_sizes[i] = 0;
     }
 
     while (!work_queue.empty()) {
@@ -151,10 +125,11 @@ inline void TruncatedSort(std::vector<size_t> &lenIn, std::vector<unsigned char 
     uint8_t indices[128];
     uint8_t truncated_lengths[128];
 
-    // Allocate arrays for sortBucket
+    // Allocate and initialize arrays for sortBucket
     uint8_t* ht = new uint8_t[65536];
-    uint8_t* index_store_flat = new uint8_t[128 * 128];
-    uint8_t* index_store_sizes = new uint8_t[128];
+    std::memset(ht, 255, 65536);
+    uint8_t* index_store_flat = new uint8_t[128 * 128] {0};
+    uint8_t* index_store_sizes = new uint8_t[128] {0};
 
     uint8_t max_length = 0;
 
